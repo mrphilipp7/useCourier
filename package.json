@@ -1,0 +1,62 @@
+{
+  "name": "use-courier",
+  "version": "0.1.0",
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mrphilipp7/tbd"
+  },
+  "bugs": {
+    "url": "https://github.com/mrphilipp7/tbd/issues"
+  },
+  "description": "A React hook for tracked file uploads with XHR progress and chunked uploads.",
+  "keywords": [
+    "files",
+    "react",
+    "hooks",
+    "file upload",
+    "XMLHttpRequest"
+  ],
+  "author": {
+    "name": "zach philipp",
+    "url": "https://github.com/mrphilipp7/"
+  },
+  "license": "MIT",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "scripts": {
+    "build:types": "tsc --emitDeclarationOnly",
+    "build": "tsc --project tsconfig.json",
+    "prepublishOnly": "bun run build:types && bun run build",
+    "pack:local": "npm run build && npm pack",
+    "typecheck": "tsc --project tsconfig.json --noEmit",
+    "docs:dev": "vitepress dev documentation",
+    "docs:build": "vitepress build documentation",
+    "docs:preview": "vitepress preview documentation"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.18",
+    "typescript": "^5.0.0",
+    "vitepress": "^2.0.0-alpha.19"
+  },
+  "peerDependencies": {
+    "react": "^18.0.0 || ^19.0.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

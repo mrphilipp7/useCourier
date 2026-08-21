@@ -1,0 +1,28 @@
+{
+  "compilerOptions": {
+    "lib": ["ES2020", "DOM"],
+    "target": "ES2020",
+    "module": "NodeNext",
+    "moduleDetection": "force",
+    "jsx": "react-jsx",
+    "rootDir": "./package/use-courier",
+    "outDir": "./dist",
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+
+    "moduleResolution": "NodeNext",
+    "verbatimModuleSyntax": true,
+
+    "strict": true,
+    "skipLibCheck": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "noPropertyAccessFromIndexSignature": false
+  },
+  "include": ["package/use-courier/**/*.ts"]
+}
