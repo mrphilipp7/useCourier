@@ -42,4 +42,4 @@ export function FileUpload() {
 
 For full usage instructions, API reference, and guides, please visit the documentation:
 
-[useFiles Documentation](https://mrphilipp7.github.io/useCourier/)
+[useCourier Documentation](https://mrphilipp7.github.io/use-courier/)
