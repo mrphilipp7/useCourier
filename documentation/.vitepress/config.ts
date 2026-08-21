@@ -39,7 +39,10 @@ export default defineConfig({
       },
       {
         text: "Other",
-        items: [{ text: "License", link: "/license" }],
+        items: [
+          { text: "About", link: "/about" },
+          { text: "License", link: "/license" },
+        ],
       },
     ],
 
