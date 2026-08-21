@@ -1,15 +1,45 @@
-# usecourier
+# use-courier
 
-To install dependencies:
+A React hook for tracking and managing file uploads with progress, retries, cancellation, and optional chunking for large files.
 
-```bash
-bun install
-```
-
-To run:
+## Installation
 
 ```bash
-bun run index.ts
+npm install use-courier
 ```
 
-This project was created using `bun init` in bun v1.3.14. [Bun](https://bun.com) is a fast all-in-one JavaScript runtime.
+`use-courier` supports React 18 and React 19.
+
+## Basic usage
+
+```tsx
+import type { ChangeEvent } from "react";
+import { useCourier } from "use-courier";
+
+export function FileUpload() {
+  const { files, addFile } = useCourier({
+    url: "/api/uploads",
+  });
+
+  function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
+    Array.from(event.target.files ?? []).forEach((file) => {
+      void addFile(file);
+    });
+  }
+
+  return (
+    <>
+      <input type="file" multiple onChange={handleFileChange} />
+      {files.map((item) => (
+        <p key={item.id}>
+          {item.file.name}: {item.status} ({item.uploadProgress}%)
+        </p>
+      ))}
+    </>
+  );
+}
+```
+
+For full usage instructions, API reference, and guides, please visit the documentation:
+
+[useFiles Documentation](https://mrphilipp7.github.io/useCourier/)

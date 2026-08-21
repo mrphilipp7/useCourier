@@ -31,7 +31,10 @@ export default defineConfig({
       {
         text: "Integrations",
         items: [
-          { text: "Shadcn Attachments", link: "/integrations/shadcn-attachments" },
+          {
+            text: "Shadcn Attachments",
+            link: "/integrations/shadcn-attachments",
+          },
         ],
       },
       {
@@ -41,7 +44,7 @@ export default defineConfig({
     ],
 
     socialLinks: [
-      { icon: "github", link: "https://github.com/vuejs/vitepress" },
+      { icon: "github", link: "https://github.com/mrphilipp7/useCourier" },
     ],
   },
 });

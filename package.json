@@ -4,10 +4,10 @@
   "private": true,
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/mrphilipp7/tbd"
+    "url": "git+https://github.com/mrphilipp7/useCourier"
   },
   "bugs": {
-    "url": "https://github.com/mrphilipp7/tbd/issues"
+    "url": "https://github.com/mrphilipp7/useCourier/issues"
   },
   "description": "A React hook for tracked file uploads with XHR progress and chunked uploads.",
   "keywords": [
