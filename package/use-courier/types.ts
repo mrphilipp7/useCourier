@@ -18,8 +18,7 @@ export type FileChunking = {
 
 /** Outcome of an upload attempt, returned by addFile/retryUpload. */
 export type UploadResult<TUploadResponse> =
-  | { success: true; data: TUploadResponse }
-  | { success: false; error: Error };
+  { success: true; data: TUploadResponse } | { success: false; error: Error };
 
 export type UseCourierProps = {
   url: string;

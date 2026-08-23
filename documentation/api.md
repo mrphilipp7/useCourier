@@ -88,11 +88,11 @@ const { addFile } = useCourier({
 });
 ```
 
-| Property | Type | Description |
-| --- | --- | --- |
-| `route` | `string` | Endpoint that receives each chunk. |
-| `threshold` | `number` | File size in bytes at which chunking begins. |
-| `chunkSize` | `number` | Size of each chunk in bytes. Defaults to `threshold`. |
+| Property          | Type     | Description                                              |
+| ----------------- | -------- | -------------------------------------------------------- |
+| `route`           | `string` | Endpoint that receives each chunk.                       |
+| `threshold`       | `number` | File size in bytes at which chunking begins.             |
+| `chunkSize`       | `number` | Size of each chunk in bytes. Defaults to `threshold`.    |
 | `maxChunkRetries` | `number` | Additional attempts for a failed chunk. Defaults to `2`. |
 
 ## Returned values
@@ -103,12 +103,12 @@ const { addFile } = useCourier({
 
 The current files tracked by the hook. Each item includes:
 
-| Property | Type | Description |
-| --- | --- | --- |
-| `id` | `string` | Unique identifier for the tracked file. |
-| `file` | `File` | The original browser file. |
-| `status` | `"idle" \| "uploading" \| "processing" \| "error" \| "done"` | Current upload state. |
-| `uploadProgress` | `number` | Upload progress from `0` to `100`. |
+| Property         | Type                                                         | Description                             |
+| ---------------- | ------------------------------------------------------------ | --------------------------------------- |
+| `id`             | `string`                                                     | Unique identifier for the tracked file. |
+| `file`           | `File`                                                       | The original browser file.              |
+| `status`         | `"idle" \| "uploading" \| "processing" \| "error" \| "done"` | Current upload state.                   |
+| `uploadProgress` | `number`                                                     | Upload progress from `0` to `100`.      |
 
 `processing` means all bytes have been sent and the hook is waiting for the server response.
 
