@@ -5,11 +5,6 @@
     "module": "NodeNext",
     "moduleDetection": "force",
     "jsx": "react-jsx",
-    "rootDir": "./package/use-courier",
-    "outDir": "./dist",
-    "declaration": true,
-    "declarationMap": true,
-    "sourceMap": true,
 
     "moduleResolution": "NodeNext",
     "verbatimModuleSyntax": true,
@@ -22,7 +17,10 @@
 
     "noUnusedLocals": false,
     "noUnusedParameters": false,
-    "noPropertyAccessFromIndexSignature": false
+    "noPropertyAccessFromIndexSignature": false,
+
+    "types": ["bun"],
+    "noEmit": true
   },
-  "include": ["package/use-courier/**/*.ts"]
+  "include": ["package/use-courier/**/*.ts", "tests/**/*.ts"]
 }
