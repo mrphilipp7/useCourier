@@ -3,7 +3,8 @@ import { defineConfig } from "vitepress";
 // https://vitepress.dev/reference/site-config
 export default defineConfig({
   title: "useCourier",
-  description: "A React hook for helping track file uploads",
+  description:
+    "A headless React hook for file uploads with progress tracking, retries, cancellation, and chunked uploads for large files.",
   base: "/useCourier/",
   themeConfig: {
     sidebar: [

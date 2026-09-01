@@ -4,19 +4,29 @@
   "private": false,
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/mrphilipp7/useCourier"
+    "url": "git+https://github.com/mrphilipp7/useCourier.git"
   },
   "bugs": {
     "url": "https://github.com/mrphilipp7/useCourier/issues"
   },
   "homepage": "https://mrphilipp7.github.io/useCourier/",
-  "description": "A React hook for tracked file uploads with XHR progress and chunked uploads.",
+  "description": "A headless React hook for file uploads with progress tracking, retries, cancellation, and chunked uploads for large files.",
   "keywords": [
-    "files",
     "react",
+    "react-hook",
     "hooks",
-    "file upload",
-    "XMLHttpRequest"
+    "file-upload",
+    "upload",
+    "upload-progress",
+    "progress",
+    "xhr",
+    "xmlhttprequest",
+    "chunked-upload",
+    "resumable-upload",
+    "large-file-upload",
+    "retry",
+    "cancel-upload",
+    "typescript"
   ],
   "author": {
     "name": "zach philipp",
