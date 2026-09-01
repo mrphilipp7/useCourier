@@ -4,7 +4,7 @@ import { defineConfig } from "vitepress";
 export default defineConfig({
   title: "useCourier",
   description: "A React hook for helping track file uploads",
-  base: "/use-courier/",
+  base: "/useCourier/",
   themeConfig: {
     sidebar: [
       {

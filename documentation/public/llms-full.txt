@@ -2,7 +2,7 @@
 
 > A headless React hook for tracked file uploads: XHR progress, retries, cancellation, and optional chunked uploads for large files.
 
-This file concatenates every page of the useCourier documentation for tools that read one file instead of following links. See https://mrphilipp7.github.io/use-courier/llms.txt for the same content as a linked index.
+This file concatenates every page of the useCourier documentation for tools that read one file instead of following links. See https://mrphilipp7.github.io/useCourier/llms.txt for the same content as a linked index.
 
 ---
 

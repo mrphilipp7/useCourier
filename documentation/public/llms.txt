@@ -8,22 +8,22 @@ Package entry point: `import { useCourier } from "use-courier"`. Peer dependency
 
 ## Docs
 
-- [Getting Started](https://mrphilipp7.github.io/use-courier/get-started): install, basic usage, and the returned `files`/`addFile` shape.
-- [API Reference](https://mrphilipp7.github.io/use-courier/api): full `useCourier` options, return values, and exported error classes.
-- [Large File Uploads](https://mrphilipp7.github.io/use-courier/large-files): how `fileChunking` splits a file, retries a failed chunk, and reports progress across chunks.
-- [Backend Integration](https://mrphilipp7.github.io/use-courier/backend-integration): the request/response contract a server must implement for standard and chunked uploads.
+- [Getting Started](https://mrphilipp7.github.io/useCourier/get-started): install, basic usage, and the returned `files`/`addFile` shape.
+- [API Reference](https://mrphilipp7.github.io/useCourier/api): full `useCourier` options, return values, and exported error classes.
+- [Large File Uploads](https://mrphilipp7.github.io/useCourier/large-files): how `fileChunking` splits a file, retries a failed chunk, and reports progress across chunks.
+- [Backend Integration](https://mrphilipp7.github.io/useCourier/backend-integration): the request/response contract a server must implement for standard and chunked uploads.
 
 ## Examples
 
-- [Express](https://mrphilipp7.github.io/use-courier/examples/express): Express + Multer server for standard and chunked uploads.
-- [Next.js](https://mrphilipp7.github.io/use-courier/examples/nextjs): App Router Route Handlers for standard and chunked uploads.
-- [TanStack Start](https://mrphilipp7.github.io/use-courier/examples/tanstack-start): file-based server routes for standard and chunked uploads.
-- [Hono](https://mrphilipp7.github.io/use-courier/examples/hono): Hono routes for standard and chunked uploads.
-- [Shadcn Attachments](https://mrphilipp7.github.io/use-courier/integrations/shadcn-attachments): wiring `useCourier` into a Shadcn attachment UI without depending on Shadcn.
+- [Express](https://mrphilipp7.github.io/useCourier/examples/express): Express + Multer server for standard and chunked uploads.
+- [Next.js](https://mrphilipp7.github.io/useCourier/examples/nextjs): App Router Route Handlers for standard and chunked uploads.
+- [TanStack Start](https://mrphilipp7.github.io/useCourier/examples/tanstack-start): file-based server routes for standard and chunked uploads.
+- [Hono](https://mrphilipp7.github.io/useCourier/examples/hono): Hono routes for standard and chunked uploads.
+- [Shadcn Attachments](https://mrphilipp7.github.io/useCourier/integrations/shadcn-attachments): wiring `useCourier` into a Shadcn attachment UI without depending on Shadcn.
 
 ## Optional
 
-- [About](https://mrphilipp7.github.io/use-courier/about): maintainer info.
-- [License](https://mrphilipp7.github.io/use-courier/license): MIT.
+- [About](https://mrphilipp7.github.io/useCourier/about): maintainer info.
+- [License](https://mrphilipp7.github.io/useCourier/license): MIT.
 - [GitHub repository](https://github.com/mrphilipp7/useCourier): source code and issue tracker.
-- [llms-full.txt](https://mrphilipp7.github.io/use-courier/llms-full.txt): every page above concatenated into one file.
+- [llms-full.txt](https://mrphilipp7.github.io/useCourier/llms-full.txt): every page above concatenated into one file.

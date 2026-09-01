@@ -9,6 +9,7 @@
   "bugs": {
     "url": "https://github.com/mrphilipp7/useCourier/issues"
   },
+  "homepage": "https://mrphilipp7.github.io/useCourier/",
   "description": "A React hook for tracked file uploads with XHR progress and chunked uploads.",
   "keywords": [
     "files",
@@ -52,6 +53,7 @@
     "docs:dev": "vitepress dev documentation",
     "docs:build": "vitepress build documentation",
     "docs:preview": "vitepress preview documentation",
+    "docs:deploy": "gh-pages -d documentation/.vitepress/dist --no-history",
     "prepare": "husky"
   },
   "devDependencies": {
@@ -65,6 +67,7 @@
     "eslint": "^10.9.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-react-hooks": "^7.1.1",
+    "gh-pages": "^6.3.0",
     "globals": "^17.11.0",
     "husky": "^9.1.7",
     "prettier": "^3.9.6",
