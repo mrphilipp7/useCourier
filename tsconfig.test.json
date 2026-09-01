@@ -7,7 +7,7 @@
     "declarationMap": false,
     "sourceMap": false,
     "noEmit": true,
-    "types": ["bun-types"]
+    "types": ["bun"]
   },
   "include": ["package/use-courier/**/*.ts", "tests/**/*.ts"]
 }
