@@ -44,6 +44,8 @@
     "prepublishOnly": "bun run build:types && bun run build",
     "pack:local": "npm run build && npm pack",
     "typecheck": "tsc --project tsconfig.json --noEmit",
+    "typecheck:tests": "tsc --project tsconfig.test.json",
+    "test": "bun test",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
@@ -55,6 +57,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@happy-dom/global-registrator": "^20.12.0",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.6",

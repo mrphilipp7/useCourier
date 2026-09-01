@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "outDir": "./out/tests-typecheck",
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false,
+    "noEmit": true,
+    "types": ["bun-types"]
+  },
+  "include": ["package/use-courier/**/*.ts", "tests/**/*.ts"]
+}
