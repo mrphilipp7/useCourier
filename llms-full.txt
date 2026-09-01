@@ -1,0 +1,1528 @@
+# useCourier
+
+> A headless React hook for tracked file uploads: XHR progress, retries, cancellation, and optional chunked uploads for large files.
+
+This file concatenates every page of the useCourier documentation for tools that read one file instead of following links. See https://mrphilipp7.github.io/useCourier/llms.txt for the same content as a linked index.
+
+---
+
+# Source: /get-started
+
+# Getting Started
+
+A React hook for tracking and managing file uploads.
+
+## What is useCourier?
+
+`useCourier` is a React hook for uploading files while tracking their progress, status, errors, and completion lifecycle.
+
+## Features
+
+`useCourier` provides utilities for:
+
+- Track upload progress for each file
+- Retry failed uploads
+- Abort in-progress uploads
+- Upload large files in configurable chunks
+- Respond to upload lifecycle events
+
+## Installation
+
+Choose your preferred package manager:
+
+```bash
+npm install use-courier
+yarn add use-courier
+pnpm add use-courier
+bun add use-courier
+```
+
+## Basic usage
+
+```tsx
+import { useCourier } from "use-courier";
+
+export function UploadForm() {
+  const { files, addFile } = useCourier({
+    url: "/api/uploads",
+  });
+
+  function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (file) addFile(file);
+  }
+
+  return (
+    <>
+      <input type="file" onChange={handleFileChange} />
+      {files.map((item) => (
+        <p key={item.id}>
+          {item.file.name}: {item.status} ({item.uploadProgress}%)
+        </p>
+      ))}
+    </>
+  );
+}
+```
+
+---
+
+# Source: /api
+
+# API Reference
+
+## `useCourier`
+
+Creates an upload manager for files selected in a React component.
+
+```tsx
+const { files, addFile, retryUpload, removeFile } = useCourier({
+  url: "/api/uploads",
+});
+```
+
+`useCourier` accepts a generic response type for the data returned by your upload API:
+
+```tsx
+const { addFile } = useCourier<UploadResponse>({
+  url: "/api/uploads",
+});
+```
+
+### Options
+
+#### `url`
+
+- **Type:** `string`
+- **Required**
+
+The endpoint that receives whole-file uploads.
+
+#### `beforeUpload`
+
+- **Type:** `(context: { item: UploadItem }) => void`
+- **Optional**
+
+Runs before an upload starts. Throw an error to reject the file without starting a request.
+
+#### `onUploadSuccess`
+
+- **Type:** `(context: { item: UploadItem }) => void`
+- **Optional**
+
+Runs after the upload API returns a successful response.
+
+#### `onUploadError`
+
+- **Type:** `(context: { item: UploadItem; error: Error }) => void`
+- **Optional**
+
+Runs when validation, transport, response handling, or upload processing fails.
+
+#### `onUploadFinish`
+
+- **Type:** `(context: { item: UploadItem }) => void`
+- **Optional**
+
+Runs after every upload attempt, whether it succeeds or fails.
+
+#### `onUploadRetry`
+
+- **Type:** `(context: { item: UploadItem }) => void`
+- **Optional**
+
+Runs when `retryUpload` is called. Throw an error to reject the retry before another request starts.
+
+#### `onRemoveFile`
+
+- **Type:** `(context: { item: UploadItem }) => void`
+- **Optional**
+
+Runs when a tracked file is removed. Removing an in-progress file also aborts its request.
+
+#### `fileChunking`
+
+- **Type:** `FileChunking`
+- **Optional**
+
+Enables chunked uploads for files larger than `threshold`.
+
+```tsx
+const { addFile } = useCourier({
+  url: "/api/uploads",
+  fileChunking: {
+    route: "/api/uploads/chunks",
+    threshold: 10 * 1024 * 1024,
+    chunkSize: 5 * 1024 * 1024,
+    maxChunkRetries: 2,
+  },
+});
+```
+
+| Property | Type | Description |
+| --- | --- | --- |
+| `route` | `string` | Endpoint that receives each chunk. |
+| `threshold` | `number` | File size in bytes at which chunking begins. |
+| `chunkSize` | `number` | Size of each chunk in bytes. Defaults to `threshold`. |
+| `maxChunkRetries` | `number` | Additional attempts for a failed chunk. Defaults to `2`. |
+
+## Returned values
+
+### `files`
+
+- **Type:** `UploadItem[]`
+
+The current files tracked by the hook. Each item includes:
+
+| Property | Type | Description |
+| --- | --- | --- |
+| `id` | `string` | Unique identifier for the tracked file. |
+| `file` | `File` | The original browser file. |
+| `status` | `"idle" \| "uploading" \| "processing" \| "error" \| "done"` | Current upload state. |
+| `uploadProgress` | `number` | Upload progress from `0` to `100`. |
+
+`processing` means all bytes have been sent and the hook is waiting for the server response.
+
+### `addFile(file)`
+
+- **Type:** `(file: File) => Promise<UploadResult<TUploadResponse>>`
+
+Adds a file to the tracked list and starts uploading it immediately.
+
+The promise resolves with either:
+
+```ts
+{ success: true, data: TUploadResponse }
+```
+
+or:
+
+```ts
+{ success: false, error: Error }
+```
+
+### `retryUpload(id)`
+
+- **Type:** `(id: string) => Promise<UploadResult<TUploadResponse>>`
+
+Retries a file whose status is `error`. The file ID comes from `files`.
+
+### `removeFile(id)`
+
+- **Type:** `(id: string) => void`
+
+Removes a tracked file by ID. If its upload is still in progress, the request is aborted first.
+
+## Error classes
+
+The package exports these error classes:
+
+- `FileError` for invalid or unavailable files
+- `XhrRequestError` for network or request failures
+- `XhrResponseError` for unsuccessful or unusable responses
+- `UploadCancelledError` when an upload is intentionally aborted
+
+---
+
+# Source: /large-files
+
+# Large File Uploads
+
+Chunking is the advanced upload path for files that should not be sent in one request. When enabled, `useCourier` splits a large file into smaller pieces and sends those pieces sequentially to your chunk endpoint.
+
+## When chunking starts
+
+Chunking is enabled with the `fileChunking` option. A file is chunked only when its size is greater than `threshold`.
+
+```tsx
+import { useCourier } from "use-courier";
+
+const { addFile } = useCourier({
+  url: "/api/uploads",
+  fileChunking: {
+    route: "/api/uploads/chunks",
+    threshold: 10 * 1024 * 1024,
+    chunkSize: 5 * 1024 * 1024,
+    maxChunkRetries: 2,
+  },
+});
+```
+
+Files at or below the threshold use the regular `url` endpoint. Larger files use `fileChunking.route` instead.
+
+## Configuration
+
+| Property | Type | Description |
+| --- | --- | --- |
+| `route` | `string` | Endpoint that receives each chunk. |
+| `threshold` | `number` | File size in bytes at which chunking begins. |
+| `chunkSize` | `number` | Size of each chunk in bytes. Defaults to `threshold`. |
+| `maxChunkRetries` | `number` | Additional attempts for a failed chunk. Defaults to `2`. |
+
+All sizes are measured in bytes. For example, `10 * 1024 * 1024` represents 10 MiB.
+
+## How a chunked upload works
+
+For a file with a size of 12 MiB and a `chunkSize` of 5 MiB, the hook sends three requests:
+
+1. Chunk `0`: bytes `0` through `5 MiB`
+2. Chunk `1`: bytes `5 MiB` through `10 MiB`
+3. Chunk `2`: the remaining `2 MiB`
+
+The requests are sent one at a time. Each request uses `multipart/form-data` and includes:
+
+| Field | Description |
+| --- | --- |
+| `file` | The current chunk as a file part. |
+| `uploadId` | A unique ID shared by every chunk in this upload. |
+| `chunkIndex` | The zero-based index of the current chunk. |
+| `totalChunks` | The total number of chunks for the file. |
+
+The final chunk response becomes the `data` value returned by `addFile` or `retryUpload`.
+
+## Progress and retries
+
+Progress is reported as the total number of bytes sent across all chunks, not just the current chunk. This means the `uploadProgress` value continues smoothly from one chunk to the next.
+
+If a chunk fails, the hook retries that chunk up to `maxChunkRetries` additional times before marking the upload as failed. Cancellation is not retried. Calling `removeFile` aborts the active request and removes the file from the tracked list.
+
+## Server responsibilities
+
+The chunk endpoint must:
+
+1. Read the `file`, `uploadId`, `chunkIndex`, and `totalChunks` fields.
+2. Store each chunk under its `uploadId` and `chunkIndex`.
+3. Detect when all chunks for an upload have arrived.
+4. Reassemble the chunks in index order.
+5. Return the completed upload response from the final request.
+
+The client does not reassemble the file. Your server must also clean up incomplete or expired uploads so abandoned chunks do not accumulate indefinitely.
+
+## Choosing chunk sizes
+
+A larger chunk size means fewer requests and less request overhead, but each retry sends more data. A smaller chunk size can make retries cheaper and may work better with request-size limits, but it creates more requests.
+
+Choose a `threshold` and `chunkSize` that fit your server's request limits and storage strategy.
+
+---
+
+# Source: /backend-integration
+
+# Backend Integration
+
+`useCourier` sends files using `multipart/form-data`. Your backend must expose an endpoint that accepts the uploaded file and returns a JSON response.
+
+## Standard uploads
+
+Configure the regular upload endpoint with `url`:
+
+```tsx
+const { files, addFile } = useCourier({
+  url: "/api/uploads",
+});
+```
+
+The request contains one file field:
+
+| Field | Description |
+| --- | --- |
+| `file` | The selected file. |
+
+Your endpoint should:
+
+1. Parse the multipart request.
+2. Validate and store the file.
+3. Return a successful `2xx` status.
+4. Return a valid JSON response.
+
+## Response handling
+
+The hook parses the response body as JSON. A successful response is returned through `addFile` or `retryUpload`:
+
+```ts
+{
+  success: true,
+  data: response,
+}
+```
+
+Any non-`2xx` response becomes an upload error:
+
+```ts
+{
+  success: false,
+  error: Error,
+}
+```
+
+Use a `4xx` status for client errors, such as invalid files, and a `5xx` status for server-side failures.
+
+## Chunked uploads
+
+For large files, configure a separate chunk endpoint:
+
+```tsx
+const { addFile } = useCourier({
+  url: "/api/uploads",
+  fileChunking: {
+    route: "/api/uploads/chunks",
+    threshold: 100 * 1024 * 1024,
+    chunkSize: 10 * 1024 * 1024,
+  },
+});
+```
+
+Files larger than `threshold` are sent to `route` in sequential requests. Each request contains:
+
+| Field | Description |
+| --- | --- |
+| `file` | The current chunk. |
+| `uploadId` | An ID shared by every chunk in one upload. |
+| `chunkIndex` | The zero-based index of the current chunk. |
+| `totalChunks` | The total number of chunks for the file. |
+
+The final chunk response becomes the upload result returned by the hook.
+
+## Server responsibilities
+
+The chunk endpoint must:
+
+1. Parse the `file`, `uploadId`, `chunkIndex`, and `totalChunks` fields.
+2. Store each chunk under its `uploadId` and `chunkIndex`.
+3. Detect when all chunks for an upload have arrived.
+4. Reassemble the chunks in index order.
+5. Return the completed upload response from the final request.
+
+The client does not reassemble the file. The server should also clean up incomplete or expired uploads so abandoned chunks do not accumulate indefinitely.
+
+## Backend considerations
+
+- Configure multipart parsing for both standard and chunked endpoints.
+- Enforce file-size and request-size limits.
+- Configure CORS when the frontend and backend use different origins.
+- Validate file types, authentication, and authorization server-side.
+- Use an upload ID and chunk index to prevent chunks from being mixed between uploads.
+- Make chunk writes idempotent when possible so retries do not corrupt the completed file.
+
+## Framework examples
+
+The framework-specific guides show how to implement this contract with Express, Next.js, TanStack Start, and Hono.
+
+---
+
+# Source: /examples/express
+
+# Express
+
+This example uses Express and Multer to handle the `multipart/form-data` requests sent by `useCourier`.
+
+## Install dependencies
+
+```bash
+npm install express multer
+npm install --save-dev @types/express @types/multer tsx typescript
+```
+
+This example uses a Node Express server. Multer parses the multipart request, while Node's filesystem APIs save the files.
+
+## Basic file uploads
+
+Start with a standard upload endpoint. It accepts one or more files under the `file` field.
+
+### Client setup
+
+```tsx
+import { useCourier } from "use-courier";
+
+const { addFile } = useCourier({
+  url: "/upload",
+});
+```
+
+### Server
+
+Create `server.ts`:
+
+```ts
+import fs from "node:fs/promises";
+import path from "node:path";
+import crypto from "node:crypto";
+import express, {
+  type NextFunction,
+  type Request,
+  type Response,
+} from "express";
+import multer from "multer";
+
+const app = express();
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 100 * 1024 * 1024 },
+});
+
+const UPLOAD_DIR = path.resolve("./uploads");
+
+function safeFileName(fileName: string) {
+  return path.basename(fileName).replace(/[^a-zA-Z0-9._-]/g, "_");
+}
+
+app.post("/upload", upload.array("file"), async (req, res) => {
+  const files = (req.files ?? []) as Express.Multer.File[];
+
+  if (files.length === 0) {
+    return res.status(400).json({ error: "At least one file is required" });
+  }
+
+  await fs.mkdir(UPLOAD_DIR, { recursive: true });
+
+  const savedFiles = [];
+  for (const file of files) {
+    const name = safeFileName(file.originalname);
+    const storedName = `${crypto.randomUUID()}-${name}`;
+    await fs.writeFile(path.join(UPLOAD_DIR, storedName), file.buffer);
+    savedFiles.push({
+      name,
+      size: file.size,
+      type: file.mimetype,
+    });
+  }
+
+  return res.json({ count: savedFiles.length, files: savedFiles });
+});
+
+app.use((error: unknown, _req: Request, res: Response, next: NextFunction) => {
+  if (error instanceof multer.MulterError) {
+    return res.status(400).json({ error: error.message });
+  }
+  return next(error);
+});
+
+app.listen(3000, () => {
+  console.log("Upload server listening at http://localhost:3000");
+});
+```
+
+Run the server with:
+
+```bash
+npx tsx server.ts
+```
+
+The standard route returns the response shape expected by `useCourier`:
+
+```json
+{
+  "count": 1,
+  "files": [
+    { "name": "document.pdf", "size": 12345, "type": "application/pdf" }
+  ]
+}
+```
+
+## Chunked uploads
+
+Once the basic upload works, add chunking for large files. Configure a separate route in the client:
+
+```tsx
+const { addFile } = useCourier({
+  url: "/upload",
+  fileChunking: {
+    route: "/upload/chunk",
+    threshold: 100 * 1024 * 1024,
+    chunkSize: 10 * 1024 * 1024,
+    maxChunkRetries: 2,
+  },
+});
+```
+
+Add this route to the same Express server before the error-handling middleware. It stores each chunk by index, so a retry replaces the previous copy instead of duplicating bytes:
+
+```ts
+import path from "node:path";
+
+const CHUNK_DIR = path.resolve("./tmp/upload-chunks");
+const UUID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+app.post("/upload/chunk", upload.single("file"), async (req, res) => {
+  const chunk = req.file;
+  const { uploadId, chunkIndex, totalChunks } = req.body;
+
+  if (
+    !chunk ||
+    typeof uploadId !== "string" ||
+    typeof chunkIndex !== "string" ||
+    typeof totalChunks !== "string"
+  ) {
+    return res.status(400).json({ error: "Malformed chunk upload request" });
+  }
+
+  if (!UUID_REGEX.test(uploadId)) {
+    return res.status(400).json({ error: "Invalid uploadId" });
+  }
+
+  const index = Number(chunkIndex);
+  const total = Number(totalChunks);
+  if (
+    !Number.isInteger(index) ||
+    !Number.isInteger(total) ||
+    index < 0 ||
+    total <= 0 ||
+    index >= total
+  ) {
+    return res.status(400).json({ error: "Invalid chunkIndex/totalChunks" });
+  }
+
+  await fs.mkdir(CHUNK_DIR, { recursive: true });
+  const chunkPath = path.join(CHUNK_DIR, `${uploadId}-${index}.part`);
+  await fs.writeFile(chunkPath, chunk.buffer);
+
+  if (index !== total - 1) {
+    return res.json({ chunkIndex: index, received: true });
+  }
+
+  const chunkPaths = Array.from({ length: total }, (_, chunkNumber) =>
+    path.join(CHUNK_DIR, `${uploadId}-${chunkNumber}.part`),
+  );
+
+  try {
+    await Promise.all(chunkPaths.map((filePath) => fs.access(filePath)));
+  } catch {
+    return res.status(409).json({ error: "Not all chunks have been received" });
+  }
+
+  await fs.mkdir(UPLOAD_DIR, { recursive: true });
+  const name = safeFileName(chunk.originalname);
+  const finalPath = path.join(UPLOAD_DIR, `${uploadId}-${name}`);
+  await fs.writeFile(finalPath, Buffer.alloc(0));
+
+  for (const filePath of chunkPaths) {
+    await fs.appendFile(finalPath, await fs.readFile(filePath));
+    await fs.unlink(filePath);
+  }
+
+  const stats = await fs.stat(finalPath);
+  return res.json({
+    count: 1,
+    files: [{ name, size: stats.size, type: chunk.mimetype }],
+  });
+});
+```
+
+This route expects the existing `app`, `upload`, and Express server from the basic example. For a complete production implementation, add cleanup for abandoned chunks, authentication, authorization, file validation, and deployment-specific request limits.
+
+## Notes
+
+- This example writes to local disk. Use object storage or another durable storage system for production deployments.
+- The client sends chunks sequentially, but the server reassembles them by index.
+
+---
+
+# Source: /examples/nextjs
+
+# Next.js
+
+This example uses a Next.js App Router Route Handler to receive the `multipart/form-data` requests sent by `useCourier`. It covers a basic upload first, then adds chunking as a separate advanced route.
+
+## Client setup
+
+Point `useCourier` at the Route Handler:
+
+```tsx
+import { useCourier } from "use-courier";
+
+const { addFile } = useCourier({
+  url: "/api/upload",
+});
+```
+
+The hook sends each file in the `file` field of a `multipart/form-data` request.
+
+## Route Handler
+
+Create `app/api/upload/route.ts` in a Next.js application:
+
+```ts
+import { randomUUID } from "node:crypto";
+import { mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { NextResponse } from "next/server";
+
+export const runtime = "nodejs";
+
+const UPLOAD_DIR = path.resolve("./uploads");
+
+function safeFileName(fileName: string) {
+  return path.basename(fileName).replace(/[^a-zA-Z0-9._-]/g, "_");
+}
+
+export async function POST(request: Request) {
+  try {
+    const formData = await request.formData();
+    const files = formData
+      .getAll("file")
+      .filter((value): value is File => value instanceof File);
+
+    if (files.length === 0) {
+      return NextResponse.json(
+        { error: "At least one file is required" },
+        { status: 400 },
+      );
+    }
+
+    await mkdir(UPLOAD_DIR, { recursive: true });
+
+    const savedFiles = [];
+    for (const file of files) {
+      const name = safeFileName(file.name);
+      const storedName = `${randomUUID()}-${name}`;
+      const bytes = Buffer.from(await file.arrayBuffer());
+
+      await writeFile(path.join(UPLOAD_DIR, storedName), bytes);
+      savedFiles.push({
+        name,
+        size: file.size,
+        type: file.type,
+      });
+    }
+
+    return NextResponse.json({
+      count: savedFiles.length,
+      files: savedFiles,
+    });
+  } catch (error) {
+    console.error(error);
+    return NextResponse.json(
+      { error: "Error processing files" },
+      { status: 500 },
+    );
+  }
+}
+```
+
+The route returns the metadata shape expected by `useCourier`:
+
+```json
+{
+  "count": 1,
+  "files": [
+    {
+      "name": "document.pdf",
+      "size": 12345,
+      "type": "application/pdf"
+    }
+  ]
+}
+```
+
+## What this route does
+
+- Defines a `POST /api/upload` App Router Route Handler.
+- Reads the request body with `request.formData()`.
+- Supports one or more files under the `file` field.
+- Returns `400` when no file is provided.
+- Stores files in a local `uploads` directory.
+- Returns `500` when request processing fails.
+
+## Deployment notes
+
+This example uses `node:fs` and explicitly selects the Node.js runtime. Local filesystem storage is suitable for local development or a self-hosted Node server, but it is not persistent on most serverless platforms.
+
+For deployments such as Vercel, replace the filesystem calls with durable object storage such as Vercel Blob, S3, or Cloudflare R2. Add authentication, authorization, file-type validation, and upload-size limits before using this route in production.
+
+## Chunked uploads
+
+Once the basic upload works, configure a separate route for files larger than your chosen threshold:
+
+```tsx
+const { addFile } = useCourier({
+  url: "/api/upload",
+  fileChunking: {
+    route: "/api/upload/chunk",
+    threshold: 100 * 1024 * 1024,
+    chunkSize: 10 * 1024 * 1024,
+    maxChunkRetries: 2,
+  },
+});
+```
+
+Create `app/api/upload/chunk/route.ts`:
+
+```ts
+import {
+  access,
+  appendFile,
+  mkdir,
+  readFile,
+  unlink,
+  writeFile,
+} from "node:fs/promises";
+import path from "node:path";
+import { NextResponse } from "next/server";
+
+export const runtime = "nodejs";
+
+const CHUNK_DIR = path.resolve("./tmp/upload-chunks");
+const UPLOAD_DIR = path.resolve("./uploads");
+const UUID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function safeFileName(fileName: string) {
+  return path.basename(fileName).replace(/[^a-zA-Z0-9._-]/g, "_");
+}
+
+export async function POST(request: Request) {
+  try {
+    const formData = await request.formData();
+    const chunk = formData.get("file");
+    const uploadId = formData.get("uploadId");
+    const chunkIndex = formData.get("chunkIndex");
+    const totalChunks = formData.get("totalChunks");
+
+    if (
+      !(chunk instanceof File) ||
+      typeof uploadId !== "string" ||
+      typeof chunkIndex !== "string" ||
+      typeof totalChunks !== "string"
+    ) {
+      return NextResponse.json(
+        { error: "Malformed chunk upload request" },
+        { status: 400 },
+      );
+    }
+
+    if (!UUID_REGEX.test(uploadId)) {
+      return NextResponse.json({ error: "Invalid uploadId" }, { status: 400 });
+    }
+
+    const index = Number(chunkIndex);
+    const total = Number(totalChunks);
+    if (
+      !Number.isInteger(index) ||
+      !Number.isInteger(total) ||
+      index < 0 ||
+      total <= 0 ||
+      index >= total
+    ) {
+      return NextResponse.json(
+        { error: "Invalid chunkIndex/totalChunks" },
+        { status: 400 },
+      );
+    }
+
+    const name = safeFileName(chunk.name);
+    const finalPath = path.join(UPLOAD_DIR, `${uploadId}-${name}`);
+    await mkdir(CHUNK_DIR, { recursive: true });
+
+    // A retry after a lost final response can reuse the completed upload.
+    try {
+      const completedFile = await readFile(finalPath);
+      return NextResponse.json({
+        count: 1,
+        files: [{ name, size: completedFile.byteLength, type: chunk.type }],
+      });
+    } catch {
+      // The upload has not been completed yet.
+    }
+
+    const chunkPath = path.join(CHUNK_DIR, `${uploadId}-${index}.part`);
+    await writeFile(chunkPath, Buffer.from(await chunk.arrayBuffer()));
+
+    if (index !== total - 1) {
+      return NextResponse.json({ chunkIndex: index, received: true });
+    }
+
+    const chunkPaths = Array.from({ length: total }, (_, chunkNumber) =>
+      path.join(CHUNK_DIR, `${uploadId}-${chunkNumber}.part`),
+    );
+
+    try {
+      await Promise.all(chunkPaths.map((filePath) => access(filePath)));
+    } catch {
+      return NextResponse.json(
+        { error: "Not all chunks have been received" },
+        { status: 409 },
+      );
+    }
+
+    await mkdir(UPLOAD_DIR, { recursive: true });
+    await writeFile(finalPath, Buffer.alloc(0));
+
+    for (const filePath of chunkPaths) {
+      await appendFile(finalPath, await readFile(filePath));
+      await unlink(filePath);
+    }
+
+    const file = await readFile(finalPath);
+    return NextResponse.json({
+      count: 1,
+      files: [{ name, size: file.byteLength, type: chunk.type }],
+    });
+  } catch (error) {
+    console.error(error);
+    return NextResponse.json(
+      { error: "Error processing chunk" },
+      { status: 500 },
+    );
+  }
+}
+```
+
+The route stores each chunk by `uploadId` and `chunkIndex`, so retrying a chunk replaces its previous copy instead of duplicating bytes. The client sends chunks sequentially, and the server reassembles them in index order when the final chunk arrives.
+
+This example uses local filesystem storage and the Node.js runtime. For Vercel or another serverless deployment, replace the filesystem operations with durable object storage and add cleanup for abandoned chunks.
+
+---
+
+# Source: /examples/tanstack-start
+
+# TanStack Start
+
+TanStack Start server routes can receive the `multipart/form-data` requests sent by `useCourier`. This page starts with a basic upload route, then adds chunking as a separate advanced route.
+
+## Client setup
+
+Point `useCourier` at the server route:
+
+```tsx
+import { useCourier } from "use-courier";
+
+const { addFile } = useCourier({
+  url: "/upload",
+});
+```
+
+The hook sends each file using the `file` field in a `multipart/form-data` request.
+
+## Server route
+
+Create `src/routes/upload.ts` in your TanStack Start application. The file-based route creates a `POST /upload` endpoint.
+
+```ts
+import { createFileRoute } from "@tanstack/react-router";
+import { randomUUID } from "node:crypto";
+import { mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
+
+const UPLOAD_DIR = path.resolve("./uploads");
+
+function safeFileName(fileName: string) {
+  return path.basename(fileName).replace(/[^a-zA-Z0-9._-]/g, "_");
+}
+
+export const Route = createFileRoute("/upload")({
+  server: {
+    handlers: {
+      POST: async ({ request }) => {
+        try {
+          const formData = await request.formData();
+          const files = formData
+            .getAll("file")
+            .filter((value): value is File => value instanceof File);
+
+          if (files.length === 0) {
+            return Response.json(
+              { error: "At least one file is required" },
+              { status: 400 },
+            );
+          }
+
+          await mkdir(UPLOAD_DIR, { recursive: true });
+
+          const savedFiles = [];
+          for (const file of files) {
+            const name = safeFileName(file.name);
+            const storedName = `${randomUUID()}-${name}`;
+            const bytes = Buffer.from(await file.arrayBuffer());
+
+            await writeFile(path.join(UPLOAD_DIR, storedName), bytes);
+            savedFiles.push({
+              name,
+              size: file.size,
+              type: file.type,
+            });
+          }
+
+          return Response.json({
+            count: savedFiles.length,
+            files: savedFiles,
+          });
+        } catch (error) {
+          console.error(error);
+          return Response.json(
+            { error: "Error processing files" },
+            { status: 500 },
+          );
+        }
+      },
+    },
+  },
+});
+```
+
+The route returns the metadata shape expected by `useCourier`:
+
+```json
+{
+  "count": 1,
+  "files": [
+    {
+      "name": "document.pdf",
+      "size": 12345,
+      "type": "application/pdf"
+    }
+  ]
+}
+```
+
+## What this route does
+
+- Defines a `POST /upload` server route using TanStack Start's file-based routing.
+- Reads the request body with `request.formData()`.
+- Supports one or more files under the `file` field.
+- Returns `400` when no file is provided.
+- Stores files in a local `uploads` directory.
+- Returns `500` when request processing fails.
+
+## Runtime and production notes
+
+This example uses `node:fs` and is intended for a Node deployment. For serverless or edge deployments, replace local filesystem storage with object storage or another durable storage service.
+
+Add authentication, authorization, file-type validation, and upload limits before using this route in production.
+
+## Chunked uploads
+
+Once the basic upload works, configure a separate route for files larger than your chosen threshold:
+
+```tsx
+const { addFile } = useCourier({
+  url: "/upload",
+  fileChunking: {
+    route: "/upload/chunk",
+    threshold: 100 * 1024 * 1024,
+    chunkSize: 10 * 1024 * 1024,
+    maxChunkRetries: 2,
+  },
+});
+```
+
+Create `src/routes/upload/chunk.ts`. TanStack Start maps this file to `POST /upload/chunk`:
+
+```ts
+import { createFileRoute } from "@tanstack/react-router";
+import {
+  mkdir,
+  access,
+  appendFile,
+  readFile,
+  unlink,
+  writeFile,
+} from "node:fs/promises";
+import path from "node:path";
+
+const CHUNK_DIR = path.resolve("./tmp/upload-chunks");
+const UPLOAD_DIR = path.resolve("./uploads");
+const UUID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function safeFileName(fileName: string) {
+  return path.basename(fileName).replace(/[^a-zA-Z0-9._-]/g, "_");
+}
+
+export const Route = createFileRoute("/upload/chunk")({
+  server: {
+    handlers: {
+      POST: async ({ request }) => {
+        try {
+          const formData = await request.formData();
+          const chunk = formData.get("file");
+          const uploadId = formData.get("uploadId");
+          const chunkIndex = formData.get("chunkIndex");
+          const totalChunks = formData.get("totalChunks");
+
+          if (
+            !(chunk instanceof File) ||
+            typeof uploadId !== "string" ||
+            typeof chunkIndex !== "string" ||
+            typeof totalChunks !== "string"
+          ) {
+            return Response.json(
+              { error: "Malformed chunk upload request" },
+              { status: 400 },
+            );
+          }
+
+          if (!UUID_REGEX.test(uploadId)) {
+            return Response.json(
+              { error: "Invalid uploadId" },
+              { status: 400 },
+            );
+          }
+
+          const index = Number(chunkIndex);
+          const total = Number(totalChunks);
+          if (
+            !Number.isInteger(index) ||
+            !Number.isInteger(total) ||
+            index < 0 ||
+            total <= 0 ||
+            index >= total
+          ) {
+            return Response.json(
+              { error: "Invalid chunkIndex/totalChunks" },
+              { status: 400 },
+            );
+          }
+
+          await mkdir(CHUNK_DIR, { recursive: true });
+          const chunkPath = path.join(CHUNK_DIR, `${uploadId}-${index}.part`);
+          await writeFile(chunkPath, Buffer.from(await chunk.arrayBuffer()));
+
+          if (index !== total - 1) {
+            return Response.json({ chunkIndex: index, received: true });
+          }
+
+          const chunkPaths = Array.from({ length: total }, (_, chunkNumber) =>
+            path.join(CHUNK_DIR, `${uploadId}-${chunkNumber}.part`),
+          );
+
+          try {
+            await Promise.all(chunkPaths.map((filePath) => access(filePath)));
+          } catch {
+            return Response.json(
+              { error: "Not all chunks have been received" },
+              { status: 409 },
+            );
+          }
+
+          await mkdir(UPLOAD_DIR, { recursive: true });
+          const name = safeFileName(chunk.name);
+          const finalPath = path.join(UPLOAD_DIR, `${uploadId}-${name}`);
+          await writeFile(finalPath, Buffer.alloc(0));
+
+          for (const filePath of chunkPaths) {
+            await appendFile(finalPath, await readFile(filePath));
+            await unlink(filePath);
+          }
+
+          const file = await readFile(finalPath);
+          return Response.json({
+            count: 1,
+            files: [{ name, size: file.byteLength, type: chunk.type }],
+          });
+        } catch (error) {
+          console.error(error);
+          return Response.json(
+            { error: "Error processing chunk" },
+            { status: 500 },
+          );
+        }
+      },
+    },
+  },
+});
+```
+
+The route writes chunks by index, so a retry replaces the previous chunk instead of appending duplicate bytes. The client sends chunks sequentially, and the server reassembles them in index order when the final chunk arrives.
+
+This example uses local filesystem storage and should run in a Node deployment. For production, add cleanup for abandoned chunks and use object storage or another durable storage system when local disk is not persistent.
+
+---
+
+# Source: /examples/hono
+
+# Hono
+
+This example implements the standard upload endpoint from the Backend Integration guide with Hono. It accepts one or more files from the `file` field and returns metadata about each file.
+
+## Client setup
+
+Point `useCourier` at the Hono route:
+
+```tsx
+import { useCourier } from "use-courier";
+
+const { addFile } = useCourier({
+  url: "/upload",
+});
+```
+
+The hook sends files as `multipart/form-data` with the field name `file`.
+
+## Hono route
+
+```ts
+import { Hono } from "hono";
+
+const route = new Hono().post("/", async (c) => {
+  try {
+    const body = await c.req.parseBody({ all: true });
+    const value = body.file;
+
+    const files = Array.isArray(value)
+      ? value.filter((item): item is File => item instanceof File)
+      : value instanceof File
+        ? [value]
+        : [];
+
+    if (files.length === 0) {
+      return c.text("At least one file is required", 400);
+    }
+
+    const response = {
+      count: files.length,
+      files: files.map((file) => ({
+        name: file.name,
+        size: file.size,
+        type: file.type,
+      })),
+    };
+
+    console.log(response);
+    return c.json(response);
+  } catch {
+    return c.text("Error processing files", 500);
+  }
+});
+
+export default route;
+```
+
+Mount the route at `/upload` in your Hono application, or update the client `url` to match wherever you mount it.
+
+## What this route does
+
+- Parses a `multipart/form-data` request.
+- Supports one file or multiple files under the `file` field.
+- Returns `400` when no file is provided.
+- Returns file name, size, and MIME type in a JSON response.
+- Returns `500` when request processing fails.
+
+This example logs file metadata instead of storing the files. In a production application, replace the `console.log` call with storage logic such as writing to object storage or a filesystem, and add authentication, authorization, file-type validation, and size limits.
+
+## Chunked uploads
+
+For files larger than a configured threshold, point `fileChunking.route` at a second Hono route:
+
+```tsx
+const { addFile } = useCourier({
+  url: "/upload",
+  fileChunking: {
+    route: "/upload/chunk",
+    threshold: 100 * 1024 * 1024,
+    chunkSize: 10 * 1024 * 1024,
+  },
+});
+```
+
+Here is a Node-backed Hono route that validates each chunk, stores chunks by index, and combines them in order when the final chunk arrives:
+
+```ts
+import { Hono } from "hono";
+import fs from "node:fs/promises";
+import path from "node:path";
+
+const CHUNK_TMP_DIR = "./tmp/upload-chunks";
+const UPLOAD_DIR = "./uploads";
+const UUID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function sanitizeFileName(fileName: string) {
+  return path.basename(fileName).replace(/[^a-zA-Z0-9._-]/g, "_");
+}
+
+const chunkRoute = new Hono().post("/", async (c) => {
+  try {
+    const body = await c.req.parseBody({ all: true });
+    const chunk = body.file;
+    const uploadId = body.uploadId;
+    const chunkIndex = body.chunkIndex;
+    const totalChunks = body.totalChunks;
+
+    if (
+      !(chunk instanceof File) ||
+      typeof uploadId !== "string" ||
+      typeof chunkIndex !== "string" ||
+      typeof totalChunks !== "string"
+    ) {
+      return c.text("Malformed chunk upload request", 400);
+    }
+
+    if (!UUID_REGEX.test(uploadId)) {
+      return c.text("Invalid uploadId", 400);
+    }
+
+    const parsedIndex = Number(chunkIndex);
+    const parsedTotal = Number(totalChunks);
+
+    if (
+      !Number.isInteger(parsedIndex) ||
+      !Number.isInteger(parsedTotal) ||
+      parsedIndex < 0 ||
+      parsedTotal <= 0 ||
+      parsedIndex >= parsedTotal
+    ) {
+      return c.text("Invalid chunkIndex/totalChunks", 400);
+    }
+
+    await fs.mkdir(CHUNK_TMP_DIR, { recursive: true });
+    const chunkPath = path.join(
+      CHUNK_TMP_DIR,
+      `${uploadId}-${parsedIndex}.part`,
+    );
+
+    // Writing by index makes a retried chunk replace its previous copy
+    // instead of appending duplicate bytes.
+    await fs.writeFile(chunkPath, Buffer.from(await chunk.arrayBuffer()));
+
+    if (parsedIndex !== parsedTotal - 1) {
+      return c.json({ chunkIndex: parsedIndex, received: true });
+    }
+
+    const chunkPaths = Array.from({ length: parsedTotal }, (_, index) =>
+      path.join(CHUNK_TMP_DIR, `${uploadId}-${index}.part`),
+    );
+
+    try {
+      await Promise.all(chunkPaths.map((filePath) => fs.access(filePath)));
+    } catch {
+      return c.text("Not all chunks have been received", 409);
+    }
+
+    await fs.mkdir(UPLOAD_DIR, { recursive: true });
+    const safeFileName = sanitizeFileName(chunk.name);
+    const finalPath = path.join(UPLOAD_DIR, `${uploadId}-${safeFileName}`);
+
+    await fs.writeFile(finalPath, Buffer.alloc(0));
+    for (const filePath of chunkPaths) {
+      await fs.appendFile(finalPath, await fs.readFile(filePath));
+      await fs.unlink(filePath);
+    }
+
+    const stats = await fs.stat(finalPath);
+
+    return c.json({
+      count: 1,
+      files: [{ name: safeFileName, size: stats.size, type: chunk.type }],
+    });
+  } catch (error) {
+    console.error(error);
+    return c.text("Error processing chunk", 500);
+  }
+});
+
+export default chunkRoute;
+```
+
+This example uses the Node filesystem, so it is intended for a Hono application running on Node. For Hono on Workers, use object storage or another storage service instead of `node:fs`.
+
+The client sends chunks sequentially, but the server still stores them by `uploadId` and `chunkIndex`. That makes retries replace the chunk rather than append duplicate bytes.
+
+---
+
+# Source: /integrations/shadcn-attachments
+
+# Shadcn Attachments
+
+`useCourier` is headless, so it can provide upload behavior for a Shadcn attachment interface without taking a dependency on Shadcn or dictating how attachments look.
+
+This integration separates responsibilities:
+
+- `useCourier` manages uploads, progress, status, retries, and cancellation.
+- Your attachment component manages previews, layout, buttons, and styling.
+
+## Connect the upload state
+
+The core wiring uses the values returned by `useCourier`:
+
+```tsx
+const { files, addFile, retryUpload, removeFile } = useCourier({
+  url: "/api/uploads",
+});
+```
+
+Connect the attachment component's file-selection event to `addFile`:
+
+```tsx
+function handleFilesSelected(selectedFiles: File[]) {
+  selectedFiles.forEach((file) => {
+    void addFile(file);
+  });
+}
+```
+
+Render each attachment from the corresponding `UploadItem`:
+
+| Attachment UI | `useCourier` value |
+| --- | --- |
+| File name and preview | `item.file` |
+| Progress indicator | `item.uploadProgress` |
+| Upload state | `item.status` |
+| Retry action | `retryUpload(item.id)` |
+| Remove or cancel action | `removeFile(item.id)` |
+
+## Display upload states
+
+Use `item.status` to choose the appropriate attachment state:
+
+```tsx
+function getAttachmentState(status: UploadItem["status"]) {
+  switch (status) {
+    case "uploading":
+      return "Uploading";
+    case "processing":
+      return "Processing";
+    case "done":
+      return "Uploaded";
+    case "error":
+      return "Upload failed";
+    default:
+      return "Ready";
+  }
+}
+```
+
+For an error state, show a retry action using the file's tracked ID. For an active upload, `removeFile` aborts the request before removing the attachment from the tracked list.
+
+## Complete example
+
+The following component connects `useCourier` to Shadcn's attachment components. The attachment components and `formatFileSize` helper belong to the consuming application.
+
+```tsx
+import React from "react";
+import {
+  Attachment,
+  AttachmentAction,
+  AttachmentActions,
+  AttachmentContent,
+  AttachmentDescription,
+  AttachmentGroup,
+  AttachmentMedia,
+  AttachmentTitle,
+} from "@/components/ui/attachment";
+import { Spinner } from "@/components/ui/spinner";
+import { FileIcon, RefreshCwIcon, XIcon } from "lucide-react";
+import { useCourier } from "use-courier";
+import { formatFileSize } from "@/lib/utils";
+
+export function FileUpload() {
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const { addFile, files, removeFile, retryUpload } = useCourier({
+    url: "http://localhost:3000/upload",
+    fileChunking: {
+      route: "http://localhost:3000/upload/chunk",
+      threshold: 100 * 1024 * 1024,
+      chunkSize: 10 * 1024 * 1024,
+    },
+    onUploadError({ error }) {
+      console.error(error.message);
+    },
+  });
+
+  function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const selectedFiles = Array.from(event.target.files ?? []);
+    selectedFiles.forEach((file) => void addFile(file));
+  }
+
+  function handleRemove(id: string) {
+    removeFile(id);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
+  return (
+    <main>
+      <p>File Upload</p>
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        onChange={handleFileChange}
+      />
+
+      <AttachmentGroup className="flex flex-col gap-4">
+        {files.map((item) => (
+          <Attachment
+            key={item.id}
+            state={item.status}
+            className="w-full max-w-xs"
+          >
+            <AttachmentMedia>
+              {item.status === "uploading" || item.status === "processing" ? (
+                <Spinner />
+              ) : (
+                <FileIcon />
+              )}
+            </AttachmentMedia>
+            <AttachmentContent>
+              <AttachmentTitle>{item.file.name}</AttachmentTitle>
+              <AttachmentDescription>
+                {item.status === "uploading"
+                  ? `Uploading - ${item.uploadProgress}%`
+                  : `${item.file.type} - ${formatFileSize(item.file.size)}`}
+              </AttachmentDescription>
+            </AttachmentContent>
+            <AttachmentActions>
+              {item.status === "error" && (
+                <AttachmentAction
+                  aria-label="Retry upload"
+                  onClick={() => void retryUpload(item.id)}
+                >
+                  <RefreshCwIcon />
+                </AttachmentAction>
+              )}
+              <AttachmentAction
+                aria-label={`Remove ${item.file.name}`}
+                onClick={() => handleRemove(item.id)}
+              >
+                <XIcon />
+              </AttachmentAction>
+            </AttachmentActions>
+          </Attachment>
+        ))}
+      </AttachmentGroup>
+    </main>
+  );
+}
+```
+
+## Keep the integration optional
+
+This recipe does not require Shadcn at the package level. You can use the same mapping with another attachment component or a custom upload interface. The important boundary is that the UI reads from `files` and sends user actions back through `addFile`, `retryUpload`, and `removeFile`.
+
+---
+
+# Source: /about
+
+# About
+
+`use-courier` is maintained by Zach Philipp (https://mrphilipp7.github.io).
+
+For more projects and information, visit https://mrphilipp7.github.io.
+
+---
+
+# Source: /license
+
+# License
+
+`use-courier` is released under the MIT License.
+
+Copyright (c) 2026 Zach Philipp
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

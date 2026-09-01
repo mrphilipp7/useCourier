@@ -1,0 +1,1 @@
+import{H as e,V as t,et as n,j as r}from"./chunks/framework.B_YhZOsv.js";var i=JSON.parse(`{"title":"API Reference","description":"","frontmatter":{},"headers":[],"relativePath":"api.md","filePath":"api.md"}`),a={name:`api.md`};function o(r,i,a,o,s,c){return n(),t(`div`,null,[...i[0]||=[e("",55)]])}var s=r(a,[[`render`,o]]);export{i as __pageData,s as default};

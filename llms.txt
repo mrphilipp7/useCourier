@@ -1,0 +1,29 @@
+# useCourier
+
+> A headless React hook for tracked file uploads: XHR progress, retries, cancellation, and optional chunked uploads for large files.
+
+useCourier (`use-courier` on npm) exposes a single hook, `useCourier`, that manages a list of tracked files through an upload lifecycle (`idle` → `uploading` → `processing` → `done`/`error`). It sends files as `multipart/form-data` via `XMLHttpRequest` (needed for upload progress events) to a backend endpoint the consumer controls, and can optionally split large files into sequential chunked requests. It renders no UI — consumers build their own file list/progress UI from the returned `files` array and lifecycle callbacks (`beforeUpload`, `onUploadSuccess`, `onUploadError`, `onUploadFinish`, `onUploadRetry`, `onRemoveFile`).
+
+Package entry point: `import { useCourier } from "use-courier"`. Peer dependency: React 18 or 19.
+
+## Docs
+
+- [Getting Started](https://mrphilipp7.github.io/useCourier/get-started): install, basic usage, and the returned `files`/`addFile` shape.
+- [API Reference](https://mrphilipp7.github.io/useCourier/api): full `useCourier` options, return values, and exported error classes.
+- [Large File Uploads](https://mrphilipp7.github.io/useCourier/large-files): how `fileChunking` splits a file, retries a failed chunk, and reports progress across chunks.
+- [Backend Integration](https://mrphilipp7.github.io/useCourier/backend-integration): the request/response contract a server must implement for standard and chunked uploads.
+
+## Examples
+
+- [Express](https://mrphilipp7.github.io/useCourier/examples/express): Express + Multer server for standard and chunked uploads.
+- [Next.js](https://mrphilipp7.github.io/useCourier/examples/nextjs): App Router Route Handlers for standard and chunked uploads.
+- [TanStack Start](https://mrphilipp7.github.io/useCourier/examples/tanstack-start): file-based server routes for standard and chunked uploads.
+- [Hono](https://mrphilipp7.github.io/useCourier/examples/hono): Hono routes for standard and chunked uploads.
+- [Shadcn Attachments](https://mrphilipp7.github.io/useCourier/integrations/shadcn-attachments): wiring `useCourier` into a Shadcn attachment UI without depending on Shadcn.
+
+## Optional
+
+- [About](https://mrphilipp7.github.io/useCourier/about): maintainer info.
+- [License](https://mrphilipp7.github.io/useCourier/license): MIT.
+- [GitHub repository](https://github.com/mrphilipp7/useCourier): source code and issue tracker.
+- [llms-full.txt](https://mrphilipp7.github.io/useCourier/llms-full.txt): every page above concatenated into one file.
