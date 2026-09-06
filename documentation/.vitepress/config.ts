@@ -16,6 +16,7 @@ export default defineConfig({
         text: "API Reference",
         items: [
           { text: "Functions and Options", link: "/api" },
+          { text: "Upload Lifecycle", link: "/upload-lifecycle" },
           { text: "Large File Uploads", link: "/large-files" },
           { text: "Backend Integration", link: "/backend-integration" },
         ],

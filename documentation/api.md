@@ -136,6 +136,8 @@ or:
 
 Retries a file whose status is `error`. The file ID comes from `files`.
 
+This restarts the upload from scratch rather than resuming — see [Upload Lifecycle](/upload-lifecycle) for exactly what that means for chunked uploads.
+
 ### `removeFile(id)`
 
 - **Type:** `(id: string) => void`
