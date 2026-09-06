@@ -10,6 +10,7 @@ Package entry point: `import { useCourier } from "use-courier"`. Peer dependency
 
 - [Getting Started](https://mrphilipp7.github.io/useCourier/get-started): install, basic usage, and the returned `files`/`addFile` shape.
 - [API Reference](https://mrphilipp7.github.io/useCourier/api): full `useCourier` options, return values, and exported error classes.
+- [Upload Lifecycle](https://mrphilipp7.github.io/useCourier/upload-lifecycle): the full `status` state machine, what happens when a chunk fails or an upload is cancelled, and why `retryUpload` restarts rather than resumes.
 - [Large File Uploads](https://mrphilipp7.github.io/useCourier/large-files): how `fileChunking` splits a file, retries a failed chunk, and reports progress across chunks.
 - [Backend Integration](https://mrphilipp7.github.io/useCourier/backend-integration): the request/response contract a server must implement for standard and chunked uploads.
 
