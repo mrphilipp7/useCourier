@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo.jpg" alt="useCourier logo" width="100%" />
+</p>
+
 # use-courier
 
 [![npm version](https://img.shields.io/npm/v/use-courier.svg)](https://www.npmjs.com/package/use-courier)
