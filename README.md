@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/logo.jpg" alt="useCourier logo" width="100%" />
+  <img src="assets/logo.png" alt="useCourier logo" width="100%" />
 </p>
 
 # use-courier
