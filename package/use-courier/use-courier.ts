@@ -30,6 +30,16 @@ export function useCourier<TUploadResponse>({
   const [files, setFiles] = React.useState<UploadItem[]>([]);
   const URL = url;
   const xhrsRef = React.useRef<Map<string, XMLHttpRequest>>(new Map());
+  /**
+   * #6: Tracks how far a chunked upload got before it failed, keyed by file
+   * id, so retryUpload can resume at the chunk that failed instead of
+   * restarting the whole file from chunk 0 under a brand-new uploadId. Only
+   * ever holds entries for chunked uploads that are currently in the
+   * "error" state — see the cleanup in runChunkedUpload and removeFile.
+   */
+  const chunkProgressRef = React.useRef<
+    Map<string, { uploadId: string; nextChunkIndex: number }>
+  >(new Map());
 
   // Abort any uploads still in flight when the consumer unmounts.
   React.useEffect(() => {
@@ -113,6 +123,17 @@ export function useCourier<TUploadResponse>({
    * Each chunk carries uploadId/chunkIndex/totalChunks alongside its bytes
    * so the server can group and reassemble them; the response from the
    * final chunk is treated as the upload's result.
+   *
+   * #6: resumes a previously-failed attempt for this file instead of always
+   * starting over. If chunkProgressRef has an entry for this file (left
+   * behind by an earlier attempt that exhausted its chunk retries — see
+   * below), this reuses that same uploadId and picks up at the chunk that
+   * failed, rather than generating a new uploadId and re-sending chunks the
+   * server already has. This is safe because the backend contract already
+   * keys chunks by uploadId + chunkIndex and reassembles once every index
+   * for that uploadId has arrived (see Backend Integration), so resuming
+   * under the same uploadId is indistinguishable from the server's
+   * perspective from a slower single attempt.
    */
   async function runChunkedUpload(
     uploadedFile: UploadItem,
@@ -121,12 +142,19 @@ export function useCourier<TUploadResponse>({
   ): Promise<TUploadResponse> {
     const chunkSize = chunking.chunkSize ?? chunking.threshold;
     const totalChunks = Math.ceil(uploadedFile.file.size / chunkSize);
-    const uploadId = crypto.randomUUID();
     const maxChunkRetries = chunking.maxChunkRetries ?? 2;
+
+    const resumeFrom = chunkProgressRef.current.get(uploadedFile.id);
+    const uploadId = resumeFrom?.uploadId ?? crypto.randomUUID();
+    const startChunkIndex = resumeFrom?.nextChunkIndex ?? 0;
 
     let response: TUploadResponse | undefined;
 
-    for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
+    for (
+      let chunkIndex = startChunkIndex;
+      chunkIndex < totalChunks;
+      chunkIndex++
+    ) {
       const start = chunkIndex * chunkSize;
       const end = Math.min(start + chunkSize, uploadedFile.file.size);
       const chunkBlob = uploadedFile.file.slice(start, end);
@@ -157,12 +185,28 @@ export function useCourier<TUploadResponse>({
           break;
         } catch (error) {
           // A cancellation is intentional — never retry it, propagate immediately.
+          // (No need to record resume progress here: removeFile is the only
+          // way to cancel, and it removes the file from tracking in the same
+          // call, so there's nothing left to resume.)
           if (error instanceof UploadCancelledError) throw error;
-          if (attempt >= maxChunkRetries) throw error;
+          if (attempt >= maxChunkRetries) {
+            // #6: out of retries for this chunk — remember where we stopped
+            // (same uploadId, this chunkIndex) so a later retryUpload call
+            // resumes here instead of re-sending every chunk from scratch.
+            chunkProgressRef.current.set(uploadedFile.id, {
+              uploadId,
+              nextChunkIndex: chunkIndex,
+            });
+            throw error;
+          }
           attempt++;
         }
       }
     }
+
+    // #6: every chunk made it through — nothing left to resume, so drop any
+    // stale marker from an earlier failed attempt for this file.
+    chunkProgressRef.current.delete(uploadedFile.id);
 
     if (response === undefined) {
       throw new XhrResponseError("No response received from chunked upload");
@@ -252,7 +296,16 @@ export function useCourier<TUploadResponse>({
     return performUpload(uploadFile);
   }
 
-  /** Re-runs the upload for a file currently in the "error" state. Resolves with a failure result (no network call) for any other status. */
+  /**
+   * Re-runs the upload for a file currently in the "error" state. Resolves
+   * with a failure result (no network call) for any other status.
+   *
+   * #6: for a chunked upload that failed partway through, this resumes from
+   * the chunk that failed (see runChunkedUpload) rather than restarting the
+   * whole file — uploadProgress is set to reflect however much had already
+   * been sent, instead of resetting to 0 and immediately jumping back up
+   * once the resumed chunk's first progress event arrives.
+   */
   function retryUpload(id: string): Promise<UploadResult<TUploadResponse>> {
     const file = files.find((f) => f.id === id);
     if (!file) {
@@ -281,7 +334,22 @@ export function useCourier<TUploadResponse>({
       return Promise.resolve({ success: false as const, error: rejection });
     }
 
-    updateFile(id, { status: "uploading", uploadProgress: 0 });
+    // #6: reflect the resumed starting point immediately, if this file has
+    // a resumable chunked upload in progress (see runChunkedUpload) — a
+    // fresh (non-chunked, or never-attempted-chunking) retry still starts
+    // at 0 as before.
+    const resumeFrom = chunkProgressRef.current.get(id);
+    const resumePercent =
+      resumeFrom && fileChunking
+        ? Math.round(
+            ((resumeFrom.nextChunkIndex *
+              (fileChunking.chunkSize ?? fileChunking.threshold)) /
+              file.file.size) *
+              100,
+          )
+        : 0;
+
+    updateFile(id, { status: "uploading", uploadProgress: resumePercent });
     return performUpload(file);
   }
 
@@ -291,6 +359,8 @@ export function useCourier<TUploadResponse>({
     if (!file) return;
 
     xhrsRef.current.get(id)?.abort();
+    // #6: no point resuming a chunked upload for a file that's no longer tracked.
+    chunkProgressRef.current.delete(id);
     setFiles((prev) => prev.filter((f) => f.id !== id));
     /** Lifecycle hook for when a file is removed from the upload */
     onRemoveFile && onRemoveFile({ item: file });
