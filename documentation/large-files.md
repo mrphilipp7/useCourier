@@ -58,7 +58,7 @@ Progress is reported as the total number of bytes sent across all chunks, not ju
 
 If a chunk fails, the hook retries that chunk up to `maxChunkRetries` additional times before marking the upload as failed. Cancellation is not retried. Calling `removeFile` aborts the active request and removes the file from the tracked list.
 
-Calling `retryUpload` after a chunked upload fails starts over completely — a new `uploadId` and chunking from index `0`, not a resume from the chunk that failed. See [Upload Lifecycle](/upload-lifecycle) for the full explanation, including what happens if the page reloads mid-upload instead.
+Calling `retryUpload` after a chunked upload fails resumes from the chunk that failed — the same `uploadId`, picking up at that `chunkIndex` — rather than starting over. See [Upload Lifecycle](/upload-lifecycle) for the full explanation, including the one case (a page reload mid-upload) that still starts over from scratch.
 
 ## Server responsibilities
 
