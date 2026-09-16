@@ -478,3 +478,204 @@ describe("chunked uploads", () => {
     expect(result.current.files[0]?.status).toBe("error");
   });
 });
+
+describe("resuming a failed chunk (retryUpload)", () => {
+  test("resumes at the failed chunk under the same uploadId instead of restarting", async () => {
+    const { result } = renderHook(() =>
+      useCourier<{ done: true }>({
+        url: "/api/uploads",
+        fileChunking: {
+          route: "/api/uploads/chunks",
+          threshold: 10,
+          chunkSize: 5,
+          maxChunkRetries: 1,
+        },
+      }),
+    );
+
+    // 12 bytes / 5-byte chunks = 3 chunks: 0, 1, 2.
+    act(() => {
+      void result.current.addFile(makeFile(12));
+    });
+    const chunk0 = MockXMLHttpRequest.last;
+    const uploadId = chunk0.body?.get("uploadId");
+
+    await act(async () => {
+      chunk0.respondWith(200, { chunkIndex: 0, received: true });
+      await Promise.resolve();
+    });
+    const chunk1 = MockXMLHttpRequest.last;
+    expect(chunk1.body?.get("chunkIndex")).toBe("1");
+
+    // Exhaust chunk 1's retries (maxChunkRetries: 1 => 2 total attempts).
+    await act(async () => {
+      chunk1.respondWithNetworkError();
+      await Promise.resolve();
+    });
+    const chunk1Retry = MockXMLHttpRequest.last;
+    await act(async () => {
+      chunk1Retry.respondWithNetworkError();
+      await Promise.resolve();
+    });
+
+    expect(result.current.files[0]?.status).toBe("error");
+    expect(MockXMLHttpRequest.instances).toHaveLength(3); // chunk 0, chunk 1 x2
+
+    const id = result.current.files[0]!.id;
+    let retryPromise!: Promise<unknown>;
+    act(() => {
+      retryPromise = result.current.retryUpload(id);
+    });
+
+    // Resumes at chunk 1 under the same uploadId — chunk 0 is not re-sent.
+    const resumedChunk = MockXMLHttpRequest.last;
+    expect(resumedChunk.body?.get("chunkIndex")).toBe("1");
+    expect(resumedChunk.body?.get("uploadId")).toBe(uploadId);
+    expect(MockXMLHttpRequest.instances).toHaveLength(4);
+
+    await act(async () => {
+      resumedChunk.respondWith(200, { chunkIndex: 1, received: true });
+      await Promise.resolve();
+    });
+    const chunk2 = MockXMLHttpRequest.last;
+    expect(chunk2.body?.get("chunkIndex")).toBe("2");
+    expect(chunk2.body?.get("uploadId")).toBe(uploadId);
+
+    let outcome: unknown;
+    await act(async () => {
+      chunk2.respondWith(200, { done: true });
+      outcome = await retryPromise;
+    });
+
+    expect(outcome).toEqual({ success: true, data: { done: true } });
+    expect(result.current.files[0]?.status).toBe("done");
+    // chunk0(1) + chunk1 failures(2) + chunk1 resume(1) + chunk2(1) = 5.
+    // Anything higher would mean chunk 0 got sent again.
+    expect(MockXMLHttpRequest.instances).toHaveLength(5);
+  });
+
+  test("reflects the resumed starting progress immediately, not a reset to 0", async () => {
+    const { result } = renderHook(() =>
+      useCourier({
+        url: "/api/uploads",
+        fileChunking: {
+          route: "/api/uploads/chunks",
+          threshold: 10,
+          chunkSize: 5,
+          maxChunkRetries: 0,
+        },
+      }),
+    );
+
+    act(() => {
+      void result.current.addFile(makeFile(12));
+    });
+    await act(async () => {
+      MockXMLHttpRequest.last.respondWith(200, {});
+      await Promise.resolve();
+    });
+
+    // Chunk 1 fails immediately (maxChunkRetries: 0 => no automatic retry).
+    await act(async () => {
+      MockXMLHttpRequest.last.respondWithNetworkError();
+      await Promise.resolve();
+    });
+    expect(result.current.files[0]?.status).toBe("error");
+
+    const id = result.current.files[0]!.id;
+    act(() => {
+      void result.current.retryUpload(id);
+    });
+
+    // 5 of 12 bytes already sent ≈ 42%, reflected immediately — not 0.
+    expect(result.current.files[0]?.uploadProgress).toBe(42);
+    expect(result.current.files[0]?.status).toBe("uploading");
+  });
+
+  test("a second retry after another failure resumes further along, still under the same uploadId", async () => {
+    const { result } = renderHook(() =>
+      useCourier({
+        url: "/api/uploads",
+        fileChunking: {
+          route: "/api/uploads/chunks",
+          threshold: 10,
+          chunkSize: 5,
+          maxChunkRetries: 0,
+        },
+      }),
+    );
+
+    // 17 bytes / 5-byte chunks = 4 chunks: 0, 1, 2, 3 (2 bytes).
+    act(() => {
+      void result.current.addFile(makeFile(17));
+    });
+    const uploadId = MockXMLHttpRequest.last.body?.get("uploadId");
+
+    await act(async () => {
+      MockXMLHttpRequest.last.respondWith(200, {});
+      await Promise.resolve();
+    });
+    // Chunk 1 fails -> error.
+    await act(async () => {
+      MockXMLHttpRequest.last.respondWithNetworkError();
+      await Promise.resolve();
+    });
+
+    const id = result.current.files[0]!.id;
+
+    // First retry resumes at chunk 1 and succeeds this time.
+    act(() => {
+      void result.current.retryUpload(id);
+    });
+    expect(MockXMLHttpRequest.last.body?.get("chunkIndex")).toBe("1");
+    await act(async () => {
+      MockXMLHttpRequest.last.respondWith(200, {});
+      await Promise.resolve();
+    });
+
+    // Chunk 2 fails this time -> error again.
+    await act(async () => {
+      MockXMLHttpRequest.last.respondWithNetworkError();
+      await Promise.resolve();
+    });
+    expect(result.current.files[0]?.status).toBe("error");
+
+    // Second retry resumes at chunk 2 — not chunk 0 or chunk 1 again.
+    act(() => {
+      void result.current.retryUpload(id);
+    });
+    expect(MockXMLHttpRequest.last.body?.get("chunkIndex")).toBe("2");
+    expect(MockXMLHttpRequest.last.body?.get("uploadId")).toBe(uploadId);
+  });
+
+  test("does not share resume state between different files", async () => {
+    const { result } = renderHook(() =>
+      useCourier({
+        url: "/api/uploads",
+        fileChunking: {
+          route: "/api/uploads/chunks",
+          threshold: 10,
+          chunkSize: 5,
+          maxChunkRetries: 0,
+        },
+      }),
+    );
+
+    // File A fails its first chunk and ends up in "error".
+    act(() => {
+      void result.current.addFile(makeFile(12, "a.txt"));
+    });
+    await act(async () => {
+      MockXMLHttpRequest.last.respondWithNetworkError();
+      await Promise.resolve();
+    });
+    expect(result.current.files[0]?.status).toBe("error");
+
+    // File B is a brand-new chunked upload — it must still start at chunk 0,
+    // unaffected by file A's stored resume state.
+    act(() => {
+      void result.current.addFile(makeFile(12, "b.txt"));
+    });
+    expect(MockXMLHttpRequest.last.body?.get("chunkIndex")).toBe("0");
+  });
+});

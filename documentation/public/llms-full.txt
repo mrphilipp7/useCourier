@@ -207,7 +207,7 @@ or:
 
 Retries a file whose status is `error`. The file ID comes from `files`.
 
-This restarts the upload from scratch rather than resuming — see Upload Lifecycle for exactly what that means for chunked uploads.
+For a chunked upload, this resumes from the chunk that failed rather than restarting from scratch — see Upload Lifecycle for exactly what that means, and the one case (a page reload) where it still starts over.
 
 ### `removeFile(id)`
 
@@ -230,7 +230,7 @@ The package exports these error classes:
 
 # Upload Lifecycle
 
-This page documents exactly what `status` transitions happen, and in what order, for every outcome an upload can have — including the cases that tend to surprise people: a chunk failing partway through, cancelling mid-upload, and retrying or restarting after a failure.
+This page documents exactly what `status` transitions happen, and in what order, for every outcome an upload can have — including the cases that tend to surprise people: a chunk failing partway through, cancelling mid-upload, and what actually happens when you retry after a failure.
 
 ## Status state machine
 
@@ -248,7 +248,7 @@ This page documents exactly what `status` transitions happen, and in what order,
 
 Each chunk is retried independently, up to `fileChunking.maxChunkRetries` (default `2`) additional attempts, reusing the same `uploadId` and `chunkIndex` — earlier, already-succeeded chunks are not re-sent.
 
-Once a chunk exhausts its retries, the entire upload fails: `status` becomes `"error"`, `onUploadError` fires with the underlying error, and no later chunks are attempted. There's no partial-success state — a file is either fully `done` or it's `error`, even if 9 of 10 chunks made it through.
+Once a chunk exhausts its retries, the entire upload fails: `status` becomes `"error"`, `onUploadError` fires with the underlying error, and no later chunks are attempted. There's no partial-success state — a file is either fully `done` or it's `error`, even if 9 of 10 chunks made it through. A later `retryUpload` call can pick up from exactly this point — see below.
 
 ## Cancelling mid-upload
 
@@ -256,13 +256,15 @@ Only one request is ever in flight per file at a time — for a chunked upload, 
 
 A cancellation is never retried, even if the chunk still has retry attempts left — it's treated as intentional and propagates straight through as an `UploadCancelledError`, without pausing at intermediate chunks either. `removeFile` also removes the item from `files` in the same call, so by the time `onUploadError`/`onUploadFinish` fire for the cancellation, the file is already gone from the tracked list — don't rely on reading it back out of `files` from inside those callbacks.
 
-## `retryUpload` restarts — it doesn't resume
+## `retryUpload` resumes a chunked upload — it doesn't restart
 
-This is the one most worth calling out explicitly: `retryUpload` starts the upload over from scratch, not from where it failed. For a chunked upload, that means a brand-new `uploadId` and chunking beginning again at `chunkIndex` `0` — none of the progress from the failed attempt carries over.
+For a chunked upload, `retryUpload` picks up at the chunk that failed instead of starting the whole file over: it reuses the same `uploadId` and begins again at that `chunkIndex`, so chunks that already succeeded aren't re-sent. `uploadProgress` reflects the resumed starting point immediately, rather than resetting to `0` and jumping back up once the resumed chunk's first progress event arrives.
 
-The chunks that were already sent under the previous `uploadId` are now orphaned on the server. This is exactly why your chunk endpoint needs to clean up incomplete/abandoned uploads (see Backend Integration) — every failed-then-retried chunked upload leaves one behind.
+This works without any changes to your server: the chunk-endpoint contract already keys chunks by `uploadId` + `chunkIndex` and reassembles once every index has arrived (see Backend Integration), so resuming under the same `uploadId` looks identical to the server as a slower single attempt — nothing is orphaned.
 
-The same applies if the user reloads the page mid-upload instead of hitting a retry button: all upload state lives only in React state and an in-memory ref, so nothing survives a reload. A fresh `addFile` call after reloading is indistinguishable from uploading the file for the first time — new `id`, new `uploadId` if it's chunked, and the bytes already sent before the reload are abandoned server-side. There is currently no support for resuming a partially-completed upload; every restart re-sends the whole file.
+For a non-chunked (whole-file) upload there's no partial progress to resume from, so `retryUpload` re-sends the entire file, same as it always has.
+
+This only covers retrying within the same page session. If the user reloads the page mid-upload instead of clicking retry, everything is lost: all upload state lives only in React state and an in-memory ref, so nothing survives a reload. A fresh `addFile` call after reloading is indistinguishable from uploading the file for the first time — new `id`, new `uploadId` if it's chunked — and the bytes already sent before the reload are abandoned server-side. There is currently no support for resuming an upload across a page reload, only across a manual retry in the same session.
 
 ---
 
@@ -328,7 +330,7 @@ Progress is reported as the total number of bytes sent across all chunks, not ju
 
 If a chunk fails, the hook retries that chunk up to `maxChunkRetries` additional times before marking the upload as failed. Cancellation is not retried. Calling `removeFile` aborts the active request and removes the file from the tracked list.
 
-Calling `retryUpload` after a chunked upload fails starts over completely — a new `uploadId` and chunking from index `0`, not a resume from the chunk that failed. See Upload Lifecycle for the full explanation, including what happens if the page reloads mid-upload instead.
+Calling `retryUpload` after a chunked upload fails resumes from the chunk that failed — the same `uploadId`, picking up at that `chunkIndex` — rather than starting over. See Upload Lifecycle for the full explanation, including the one case (a page reload mid-upload) that still starts over from scratch.
 
 ## Server responsibilities
 
