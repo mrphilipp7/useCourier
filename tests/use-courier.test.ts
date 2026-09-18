@@ -679,3 +679,173 @@ describe("resuming a failed chunk (retryUpload)", () => {
     expect(MockXMLHttpRequest.last.body?.get("chunkIndex")).toBe("0");
   });
 });
+
+describe("overall", () => {
+  test("starts as idle with zero progress when no files are tracked", () => {
+    const { result } = renderHook(() => useCourier({ url: "/api/uploads" }));
+
+    expect(result.current.overall).toEqual({
+      status: "idle",
+      averageProgress: 0,
+      weightedProgress: 0,
+    });
+  });
+
+  test("averageProgress is a simple mean, ignoring file size", () => {
+    const { result } = renderHook(() => useCourier({ url: "/api/uploads" }));
+
+    act(() => {
+      void result.current.addFile(makeFile(80, "big.txt"));
+      void result.current.addFile(makeFile(20, "small.txt"));
+    });
+
+    act(() => {
+      MockXMLHttpRequest.instances[0]!.emitUploadProgress(20);
+    });
+    act(() => {
+      MockXMLHttpRequest.instances[1]!.emitUploadProgress(100);
+    });
+
+    // (20 + 100) / 2 = 60, regardless of the 80-vs-20-byte size difference.
+    expect(result.current.overall.averageProgress).toBe(60);
+  });
+
+  test("weightedProgress accounts for file size, diverging from averageProgress", () => {
+    const { result } = renderHook(() => useCourier({ url: "/api/uploads" }));
+
+    act(() => {
+      void result.current.addFile(makeFile(80, "big.txt"));
+      void result.current.addFile(makeFile(20, "small.txt"));
+    });
+
+    act(() => {
+      MockXMLHttpRequest.instances[0]!.emitUploadProgress(20); // 80-byte file at 20%
+    });
+    act(() => {
+      MockXMLHttpRequest.instances[1]!.emitUploadProgress(100); // 20-byte file at 100%
+    });
+
+    expect(result.current.overall.averageProgress).toBe(60); // (20 + 100) / 2
+    // (80 * 0.20 + 20 * 1.00) / (80 + 20) * 100 = (16 + 20) / 100 * 100 = 36
+    expect(result.current.overall.weightedProgress).toBe(36);
+  });
+
+  test("status is error if any file has errored, and the errored file's progress still counts", async () => {
+    const { result } = renderHook(() => useCourier({ url: "/api/uploads" }));
+
+    act(() => {
+      void result.current.addFile(makeFile(50, "a.txt"));
+      void result.current.addFile(makeFile(50, "b.txt"));
+    });
+
+    // File A fails at 40% progress.
+    act(() => {
+      MockXMLHttpRequest.instances[0]!.emitUploadProgress(40);
+    });
+    await act(async () => {
+      MockXMLHttpRequest.instances[0]!.respondWithNetworkError();
+      await Promise.resolve();
+    });
+
+    // File B finishes successfully.
+    await act(async () => {
+      MockXMLHttpRequest.instances[1]!.respondWith(200, {});
+      await Promise.resolve();
+    });
+
+    expect(result.current.files[0]?.status).toBe("error");
+    expect(result.current.files[1]?.status).toBe("done");
+    expect(result.current.overall.status).toBe("error");
+    // Errored file's frozen 40% still counts: (40 + 100) / 2 = 70.
+    expect(result.current.overall.averageProgress).toBe(70);
+  });
+
+  test("status is uploading if any file is uploading, even if others are done", async () => {
+    const { result } = renderHook(() => useCourier({ url: "/api/uploads" }));
+
+    act(() => {
+      void result.current.addFile(makeFile(10, "a.txt"));
+    });
+    await act(async () => {
+      MockXMLHttpRequest.last.respondWith(200, {});
+      await Promise.resolve();
+    });
+    expect(result.current.files[0]?.status).toBe("done");
+
+    act(() => {
+      void result.current.addFile(makeFile(10, "b.txt"));
+    });
+
+    expect(result.current.overall.status).toBe("uploading");
+  });
+
+  test("status is processing if any file is processing and none are uploading or errored", async () => {
+    const { result } = renderHook(() => useCourier({ url: "/api/uploads" }));
+
+    act(() => {
+      void result.current.addFile(makeFile(10, "a.txt"));
+    });
+    await act(async () => {
+      MockXMLHttpRequest.last.respondWith(200, {});
+      await Promise.resolve();
+    });
+    expect(result.current.files[0]?.status).toBe("done");
+
+    act(() => {
+      void result.current.addFile(makeFile(10, "b.txt"));
+    });
+    act(() => {
+      MockXMLHttpRequest.last.emitUploadProgress(100); // fully sent, awaiting response
+    });
+    expect(result.current.files[1]?.status).toBe("processing");
+
+    expect(result.current.overall.status).toBe("processing");
+  });
+
+  test("status is done only when every tracked file is done", async () => {
+    const { result } = renderHook(() => useCourier({ url: "/api/uploads" }));
+
+    act(() => {
+      void result.current.addFile(makeFile(10, "a.txt"));
+      void result.current.addFile(makeFile(10, "b.txt"));
+    });
+
+    await act(async () => {
+      MockXMLHttpRequest.instances[0]!.respondWith(200, {});
+      await Promise.resolve();
+    });
+    expect(result.current.overall.status).toBe("uploading"); // b.txt still going
+
+    await act(async () => {
+      MockXMLHttpRequest.instances[1]!.respondWith(200, {});
+      await Promise.resolve();
+    });
+    expect(result.current.overall.status).toBe("done");
+    expect(result.current.overall.averageProgress).toBe(100);
+    expect(result.current.overall.weightedProgress).toBe(100);
+  });
+
+  test("removing a file updates the aggregate immediately", async () => {
+    const { result } = renderHook(() => useCourier({ url: "/api/uploads" }));
+
+    act(() => {
+      void result.current.addFile(makeFile(10, "a.txt"));
+      void result.current.addFile(makeFile(10, "b.txt"));
+    });
+
+    await act(async () => {
+      MockXMLHttpRequest.instances[0]!.respondWithNetworkError();
+      await Promise.resolve();
+    });
+    expect(result.current.overall.status).toBe("error");
+
+    const erroredId = result.current.files[0]!.id;
+    act(() => {
+      result.current.removeFile(erroredId);
+    });
+
+    // Only file B (still uploading) remains — back to "uploading", not "error".
+    expect(result.current.overall.status).toBe("uploading");
+    expect(result.current.files).toHaveLength(1);
+  });
+});
