@@ -1,4 +1,6 @@
 import { defineConfig } from "vitepress";
+import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
 
 // https://vitepress.dev/reference/site-config
 export default defineConfig({
@@ -6,6 +8,9 @@ export default defineConfig({
   description:
     "A headless React hook for file uploads with progress tracking, retries, cancellation, and chunked uploads for large files.",
   base: "/useCourier/",
+  vite: {
+    plugins: [react(), tailwindcss()],
+  },
   themeConfig: {
     sidebar: [
       {

@@ -67,3 +67,7 @@ export function UploadForm() {
   );
 }
 ```
+
+### Try it
+
+<UploadDemo />
