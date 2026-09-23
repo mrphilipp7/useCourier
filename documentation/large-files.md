@@ -50,7 +50,7 @@ The requests are sent one at a time. Each request uses `multipart/form-data` and
 | `chunkIndex`  | The zero-based index of the current chunk.        |
 | `totalChunks` | The total number of chunks for the file.          |
 
-The final chunk response becomes the `data` value returned by `addFile` or `retryUpload`.
+The final chunk response becomes the `data` value returned by `addFile` or `retryUpload`, so it must be valid JSON. Responses to earlier chunks are never read: any `2xx` status, including an empty `204`, counts as the chunk being received.
 
 ## Progress and retries
 

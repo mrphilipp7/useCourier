@@ -70,6 +70,13 @@ export class MockXMLHttpRequest extends MockEventTarget {
     this.dispatchEvent("load");
   }
 
+  /** Simulates a server response with a raw (not JSON-encoded) body. */
+  respondWithRaw(status: number, body: string) {
+    this.status = status;
+    this.responseText = body;
+    this.dispatchEvent("load");
+  }
+
   /** Simulates a network-level failure (no response received). */
   respondWithNetworkError() {
     this.dispatchEvent("error");
