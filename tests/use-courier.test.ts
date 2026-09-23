@@ -114,6 +114,40 @@ describe("addFile", () => {
     expect(result.current.files[0]?.status).toBe("error");
   });
 
+  test.each([
+    ["an empty 204", 204, ""],
+    ["plain text", 200, "OK"],
+    ["an HTML page", 200, "<html><body>Bad Gateway</body></html>"],
+  ])(
+    "resolves with an error result instead of hanging for %s response",
+    async (_label, status, body) => {
+      const onUploadError = mock();
+      const onUploadFinish = mock();
+      const { result } = renderHook(() =>
+        useCourier({ url: "/api/uploads", onUploadError, onUploadFinish }),
+      );
+
+      let uploadPromise!: Promise<unknown>;
+      act(() => {
+        uploadPromise = result.current.addFile(makeFile());
+      });
+
+      let outcome: unknown;
+      await act(async () => {
+        MockXMLHttpRequest.last.respondWithRaw(status, body);
+        outcome = await uploadPromise;
+      });
+
+      expect(outcome).toMatchObject({ success: false });
+      expect((outcome as { error: Error }).error).toBeInstanceOf(
+        XhrResponseError,
+      );
+      expect(result.current.files[0]?.status).toBe("error");
+      expect(onUploadError).toHaveBeenCalledTimes(1);
+      expect(onUploadFinish).toHaveBeenCalledTimes(1);
+    },
+  );
+
   test("rejects a non-File argument without making a request", async () => {
     const { result } = renderHook(() => useCourier({ url: "/api/uploads" }));
 
@@ -407,6 +441,84 @@ describe("chunked uploads", () => {
       MockXMLHttpRequest.last.emitUploadProgress(100);
     });
     expect(result.current.files[0]?.uploadProgress).toBe(83);
+  });
+
+  test("accepts any 2xx body for intermediate chunks, without parsing it", async () => {
+    const { result } = renderHook(() =>
+      useCourier<{ done: true }>({
+        url: "/api/uploads",
+        fileChunking: {
+          route: "/api/uploads/chunks",
+          threshold: 10,
+          chunkSize: 5,
+        },
+      }),
+    );
+
+    let uploadPromise!: Promise<unknown>;
+    act(() => {
+      uploadPromise = result.current.addFile(makeFile(12));
+    });
+
+    await act(async () => {
+      MockXMLHttpRequest.last.respondWithRaw(204, "");
+      await Promise.resolve();
+    });
+    await act(async () => {
+      MockXMLHttpRequest.last.respondWithRaw(200, "OK");
+      await Promise.resolve();
+    });
+
+    // Neither intermediate response triggered a retry.
+    expect(MockXMLHttpRequest.instances).toHaveLength(3);
+    expect(MockXMLHttpRequest.last.body?.get("chunkIndex")).toBe("2");
+
+    let outcome: unknown;
+    await act(async () => {
+      MockXMLHttpRequest.last.respondWith(200, { done: true });
+      outcome = await uploadPromise;
+    });
+
+    expect(outcome).toEqual({ success: true, data: { done: true } });
+    expect(result.current.files[0]?.status).toBe("done");
+  });
+
+  test("still requires valid JSON from the final chunk", async () => {
+    const { result } = renderHook(() =>
+      useCourier({
+        url: "/api/uploads",
+        fileChunking: {
+          route: "/api/uploads/chunks",
+          threshold: 10,
+          chunkSize: 5,
+          maxChunkRetries: 0,
+        },
+      }),
+    );
+
+    let uploadPromise!: Promise<unknown>;
+    act(() => {
+      uploadPromise = result.current.addFile(makeFile(12));
+    });
+
+    for (let i = 0; i < 2; i++) {
+      await act(async () => {
+        MockXMLHttpRequest.last.respondWithRaw(204, "");
+        await Promise.resolve();
+      });
+    }
+
+    let outcome: unknown;
+    await act(async () => {
+      MockXMLHttpRequest.last.respondWithRaw(204, "");
+      outcome = await uploadPromise;
+    });
+
+    expect(outcome).toMatchObject({ success: false });
+    expect((outcome as { error: Error }).error).toBeInstanceOf(
+      XhrResponseError,
+    );
+    expect(result.current.files[0]?.status).toBe("error");
   });
 
   test("retries a failed chunk up to maxChunkRetries times before failing", async () => {

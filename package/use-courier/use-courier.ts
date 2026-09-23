@@ -61,12 +61,17 @@ export function useCourier<TUploadResponse>({
    * available): sends formData to endpoint, tracking the in-flight request
    * under trackingId so removeFile/unmount can abort it. Shared by the
    * whole-file path (runUpload) and, per chunk, the chunked-upload path.
+   *
+   * parseResponse: false skips the body entirely (any 2xx resolves with
+   * undefined) — used for intermediate chunks, whose responses are never
+   * read, so a server can answer them with an empty 204.
    */
   function sendRequest(
     trackingId: string,
     endpoint: string,
     formData: FormData,
     onProgress: (percent: number) => void,
+    parseResponse = true,
   ): Promise<TUploadResponse> {
     return new Promise<TUploadResponse>((resolve, reject) => {
       const xhr = new XMLHttpRequest();
@@ -85,7 +90,18 @@ export function useCourier<TUploadResponse>({
       xhr.addEventListener("load", () => {
         cleanup();
         if (xhr.status >= 200 && xhr.status < 300) {
-          resolve(JSON.parse(xhr.responseText) as TUploadResponse);
+          if (!parseResponse) {
+            resolve(undefined as TUploadResponse);
+            return;
+          }
+          // #18: a throw here would escape the listener and leave the
+          // promise pending forever, so a non-JSON body (empty 204, plain
+          // text, an HTML proxy page) must reject instead.
+          try {
+            resolve(JSON.parse(xhr.responseText) as TUploadResponse);
+          } catch {
+            reject(new XhrResponseError("Response was not valid JSON"));
+          }
         } else {
           reject(
             new XhrResponseError(`Upload failed with status ${xhr.status}`),
@@ -167,6 +183,10 @@ export function useCourier<TUploadResponse>({
       formData.append("chunkIndex", String(chunkIndex));
       formData.append("totalChunks", String(totalChunks));
 
+      // Only the final chunk's response becomes the upload result, so it's
+      // the only one that has to be valid JSON.
+      const isFinalChunk = chunkIndex === totalChunks - 1;
+
       const sendChunk = () =>
         sendRequest(
           uploadedFile.id,
@@ -177,6 +197,7 @@ export function useCourier<TUploadResponse>({
             const bytesSent = start + (chunkPercent / 100) * chunkBytes;
             onProgress((bytesSent / uploadedFile.file.size) * 100);
           },
+          isFinalChunk,
         );
 
       let attempt = 0;
