@@ -249,6 +249,69 @@ describe("retryUpload", () => {
     expect(result.current.files[0]?.status).toBe("done");
   });
 
+  test("can be called from inside onUploadError (#21)", async () => {
+    let retryPromise: Promise<unknown> | undefined;
+    const { result } = renderHook(() => {
+      const courier = useCourier({
+        url: "/api/uploads",
+        onUploadError: ({ item }) => {
+          // Only auto-retry the first failure.
+          if (!retryPromise) retryPromise = courier.retryUpload(item.id);
+        },
+      });
+      return courier;
+    });
+
+    let uploadPromise!: Promise<unknown>;
+    act(() => {
+      uploadPromise = result.current.addFile(makeFile());
+    });
+
+    await act(async () => {
+      MockXMLHttpRequest.last.respondWith(500, {});
+      await uploadPromise;
+    });
+
+    // The retry started a new request instead of resolving "not found".
+    expect(MockXMLHttpRequest.instances).toHaveLength(2);
+    expect(result.current.files[0]?.status).toBe("uploading");
+
+    let retryOutcome: unknown;
+    await act(async () => {
+      MockXMLHttpRequest.last.respondWith(200, { ok: true });
+      retryOutcome = await retryPromise;
+    });
+
+    expect(retryOutcome).toEqual({ success: true, data: { ok: true } });
+    expect(result.current.files[0]?.status).toBe("done");
+  });
+
+  test("a second call before a re-render doesn't start a duplicate upload", async () => {
+    const { result } = renderHook(() => useCourier({ url: "/api/uploads" }));
+
+    let uploadPromise!: Promise<unknown>;
+    act(() => {
+      uploadPromise = result.current.addFile(makeFile());
+    });
+    await act(async () => {
+      MockXMLHttpRequest.last.respondWith(500, {});
+      await uploadPromise;
+    });
+
+    const id = result.current.files[0]!.id;
+    let secondRetry!: Promise<unknown>;
+    act(() => {
+      void result.current.retryUpload(id);
+      secondRetry = result.current.retryUpload(id);
+    });
+
+    // The first retry moved the file out of "error", so the second is refused.
+    expect(MockXMLHttpRequest.instances).toHaveLength(2);
+    const outcome = await secondRetry;
+    expect(outcome).toMatchObject({ success: false });
+    expect((outcome as { error: Error }).error).toBeInstanceOf(FileError);
+  });
+
   test("an onUploadRetry rejection fails the retry without a new request", async () => {
     const onUploadRetry = mock(() => {
       throw new Error("retry not allowed");
@@ -300,6 +363,38 @@ describe("removeFile", () => {
     expect(MockXMLHttpRequest.last.aborted).toBe(true);
     expect(result.current.files).toHaveLength(0);
     expect(onRemoveFile).toHaveBeenCalledTimes(1);
+  });
+
+  test("finds a file added in the same tick (#21)", async () => {
+    const onRemoveFile = mock();
+    let addedId: string | undefined;
+    const { result } = renderHook(() =>
+      useCourier({
+        url: "/api/uploads",
+        onRemoveFile,
+        beforeUpload: ({ item }) => {
+          addedId = item.id;
+        },
+      }),
+    );
+
+    let uploadPromise!: Promise<unknown>;
+    act(() => {
+      uploadPromise = result.current.addFile(makeFile());
+      result.current.removeFile(addedId!);
+    });
+
+    expect(MockXMLHttpRequest.last.aborted).toBe(true);
+    expect(result.current.files).toHaveLength(0);
+    expect(onRemoveFile).toHaveBeenCalledTimes(1);
+
+    let outcome: unknown;
+    await act(async () => {
+      outcome = await uploadPromise;
+    });
+    expect((outcome as { error: Error }).error).toBeInstanceOf(
+      UploadCancelledError,
+    );
   });
 
   test("is a no-op for an unknown id", () => {
