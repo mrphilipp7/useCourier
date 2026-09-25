@@ -29,6 +29,14 @@ export function useCourier<TUploadResponse>({
   fileChunking,
 }: UseCourierProps) {
   const [files, setFiles] = React.useState<UploadItem[]>([]);
+  /**
+   * #21: always-current mirror of files, for lookups in retryUpload and
+   * removeFile. Reading files directly there sees whatever it was in the
+   * render the caller's closure came from, so a file added via addFile
+   * wasn't found until a re-render — including when retryUpload was called
+   * from inside onUploadError. Only written through commitFiles.
+   */
+  const filesRef = React.useRef<UploadItem[]>([]);
   const URL = url;
   const xhrsRef = React.useRef<Map<string, XMLHttpRequest>>(new Map());
   /**
@@ -44,14 +52,25 @@ export function useCourier<TUploadResponse>({
 
   // Abort any uploads still in flight when the consumer unmounts.
   React.useEffect(() => {
+    const xhrs = xhrsRef.current;
     return () => {
-      xhrsRef.current.forEach((xhr) => xhr.abort());
+      xhrs.forEach((xhr) => xhr.abort());
     };
   }, []);
 
+  /**
+   * The only way files changes: applies updater to the latest list,
+   * synchronously, so filesRef is current immediately rather than after
+   * the next render.
+   */
+  function commitFiles(updater: (prev: UploadItem[]) => UploadItem[]) {
+    filesRef.current = updater(filesRef.current);
+    setFiles(filesRef.current);
+  }
+
   /** Patches one tracked file's state by id. */
   function updateFile(id: string, updates: Partial<UploadItem>) {
-    setFiles((prev) =>
+    commitFiles((prev) =>
       prev.map((f) => (f.id === id ? { ...f, ...updates } : f)),
     );
   }
@@ -298,7 +317,7 @@ export function useCourier<TUploadResponse>({
 
     const uploadFile = createUploadFile(file);
 
-    setFiles((prev) => [
+    commitFiles((prev) => [
       ...prev,
       { ...uploadFile, status: "uploading", uploadProgress: 0 },
     ]);
@@ -329,7 +348,7 @@ export function useCourier<TUploadResponse>({
    * once the resumed chunk's first progress event arrives.
    */
   function retryUpload(id: string): Promise<UploadResult<TUploadResponse>> {
-    const file = files.find((f) => f.id === id);
+    const file = filesRef.current.find((f) => f.id === id);
     if (!file) {
       return Promise.resolve({
         success: false as const,
@@ -377,13 +396,13 @@ export function useCourier<TUploadResponse>({
 
   /** Drops a file from tracked state by id, aborting its upload if one is in flight. */
   function removeFile(id: string) {
-    const file = files.find((f) => f.id === id);
+    const file = filesRef.current.find((f) => f.id === id);
     if (!file) return;
 
     xhrsRef.current.get(id)?.abort();
     // #6: no point resuming a chunked upload for a file that's no longer tracked.
     chunkProgressRef.current.delete(id);
-    setFiles((prev) => prev.filter((f) => f.id !== id));
+    commitFiles((prev) => prev.filter((f) => f.id !== id));
     /** Lifecycle hook for when a file is removed from the upload */
     onRemoveFile && onRemoveFile({ item: file });
   }
