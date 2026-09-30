@@ -312,6 +312,94 @@ describe("retryUpload", () => {
     expect((outcome as { error: Error }).error).toBeInstanceOf(FileError);
   });
 
+  test("re-runs beforeUpload, so a file it rejected can't be uploaded by retrying (#26)", async () => {
+    const beforeUpload = mock(() => {
+      throw new Error("File too large");
+    });
+    const onUploadError = mock();
+    const { result } = renderHook(() =>
+      useCourier({ url: "/api/uploads", beforeUpload, onUploadError }),
+    );
+
+    await act(async () => {
+      await result.current.addFile(makeFile());
+    });
+    const id = result.current.files[0]?.id as string;
+
+    let outcome: unknown;
+    await act(async () => {
+      outcome = await result.current.retryUpload(id);
+    });
+
+    expect(beforeUpload).toHaveBeenCalledTimes(2);
+    expect((outcome as { error: Error }).error.message).toBe("File too large");
+    expect(MockXMLHttpRequest.instances).toHaveLength(0);
+    expect(result.current.files[0]?.status).toBe("error");
+    expect(onUploadError).toHaveBeenCalledTimes(2);
+  });
+
+  test("uploads on retry once beforeUpload stops rejecting the file", async () => {
+    let allowed = false;
+    const beforeUpload = mock(() => {
+      if (!allowed) throw new Error("Upload quota reached");
+    });
+    const { result } = renderHook(() =>
+      useCourier({ url: "/api/uploads", beforeUpload }),
+    );
+
+    await act(async () => {
+      await result.current.addFile(makeFile());
+    });
+    const id = result.current.files[0]?.id as string;
+
+    allowed = true;
+    let retryPromise!: Promise<unknown>;
+    act(() => {
+      retryPromise = result.current.retryUpload(id);
+    });
+    expect(MockXMLHttpRequest.instances).toHaveLength(1);
+
+    let outcome: unknown;
+    await act(async () => {
+      MockXMLHttpRequest.last.respondWith(200, { ok: true });
+      outcome = await retryPromise;
+    });
+
+    expect(outcome).toEqual({ success: true, data: { ok: true } });
+    expect(result.current.files[0]?.status).toBe("done");
+  });
+
+  test("runs onUploadRetry before beforeUpload on a retry", async () => {
+    const calls: string[] = [];
+    const { result } = renderHook(() =>
+      useCourier({
+        url: "/api/uploads",
+        beforeUpload: () => {
+          calls.push("beforeUpload");
+        },
+        onUploadRetry: () => {
+          calls.push("onUploadRetry");
+        },
+      }),
+    );
+
+    let uploadPromise!: Promise<unknown>;
+    act(() => {
+      uploadPromise = result.current.addFile(makeFile());
+    });
+    await act(async () => {
+      MockXMLHttpRequest.last.respondWithNetworkError();
+      await uploadPromise;
+    });
+
+    act(() => {
+      void result.current.retryUpload(result.current.files[0]!.id);
+    });
+
+    expect(calls).toEqual(["beforeUpload", "onUploadRetry", "beforeUpload"]);
+    expect(MockXMLHttpRequest.instances).toHaveLength(2);
+  });
+
   test("an onUploadRetry rejection fails the retry without a new request", async () => {
     const onUploadRetry = mock(() => {
       throw new Error("retry not allowed");

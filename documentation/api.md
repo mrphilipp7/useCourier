@@ -32,7 +32,7 @@ The endpoint that receives whole-file uploads.
 - **Type:** `(context: { item: UploadItem }) => void`
 - **Optional**
 
-Runs before an upload starts. Throw an error to reject the file without starting a request.
+Runs before every upload attempt, including each `retryUpload`. Throw an error to reject the file without starting a request. Because it runs again on retry, a file it rejected (for example, one that is too large) stays rejected, while a file rejected for a reason that has since changed (for example, a quota) can go through.
 
 #### `onUploadSuccess`
 
@@ -60,7 +60,7 @@ Runs after every upload attempt, whether it succeeds or fails.
 - **Type:** `(context: { item: UploadItem }) => void`
 - **Optional**
 
-Runs when `retryUpload` is called. Throw an error to reject the retry before another request starts.
+Runs when `retryUpload` is called, before `beforeUpload` runs again. Throw an error to reject the retry before another request starts.
 
 #### `onRemoveFile`
 

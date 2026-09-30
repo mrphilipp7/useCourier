@@ -26,6 +26,14 @@ Only one request is ever in flight per file at a time — for a chunked upload, 
 
 A cancellation is **never retried**, even if the chunk still has retry attempts left — it's treated as intentional and propagates straight through as an `UploadCancelledError`, without pausing at intermediate chunks either. `removeFile` also removes the item from `files` in the same call, so by the time `onUploadError`/`onUploadFinish` fire for the cancellation, the file is already gone from the tracked list — don't rely on reading it back out of `files` from inside those callbacks.
 
+## `retryUpload` runs your checks again
+
+Every retry goes through the same checks as the first attempt: `onUploadRetry` runs first, then `beforeUpload`, and either one can throw to reject the retry without starting a request. The file stays in `error`, and `onUploadError` and `onUploadFinish` fire again with the new rejection.
+
+This means a file `beforeUpload` rejected can't be uploaded just by retrying it, while a file rejected for a reason that has since changed (for example, the user freed up quota) goes through.
+
+Before 0.5.0, `retryUpload` did not run `beforeUpload`, so a file it rejected could be uploaded by retrying it.
+
 ## `retryUpload` resumes a chunked upload — it doesn't restart
 
 For a chunked upload, `retryUpload` picks up at the chunk that failed instead of starting the whole file over: it reuses the same `uploadId` and begins again at that `chunkIndex`, so chunks that already succeeded aren't re-sent. `uploadProgress` reflects the resumed starting point immediately, rather than resetting to `0` and jumping back up once the resumed chunk's first progress event arrives.

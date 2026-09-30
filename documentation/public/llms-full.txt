@@ -103,7 +103,7 @@ The endpoint that receives whole-file uploads.
 - **Type:** `(context: { item: UploadItem }) => void`
 - **Optional**
 
-Runs before an upload starts. Throw an error to reject the file without starting a request.
+Runs before every upload attempt, including each `retryUpload`. Throw an error to reject the file without starting a request. Because it runs again on retry, a file it rejected (for example, one that is too large) stays rejected, while a file rejected for a reason that has since changed (for example, a quota) can go through.
 
 #### `onUploadSuccess`
 
@@ -131,7 +131,7 @@ Runs after every upload attempt, whether it succeeds or fails.
 - **Type:** `(context: { item: UploadItem }) => void`
 - **Optional**
 
-Runs when `retryUpload` is called. Throw an error to reject the retry before another request starts.
+Runs when `retryUpload` is called, before `beforeUpload` runs again. Throw an error to reject the retry before another request starts.
 
 #### `onRemoveFile`
 
@@ -278,6 +278,14 @@ Once a chunk exhausts its retries, the entire upload fails: `status` becomes `"e
 Only one request is ever in flight per file at a time — for a chunked upload, that's whichever chunk is currently sending. Calling `removeFile(id)` (or unmounting the component, which aborts everything still in flight) aborts that request immediately.
 
 A cancellation is never retried, even if the chunk still has retry attempts left — it's treated as intentional and propagates straight through as an `UploadCancelledError`, without pausing at intermediate chunks either. `removeFile` also removes the item from `files` in the same call, so by the time `onUploadError`/`onUploadFinish` fire for the cancellation, the file is already gone from the tracked list — don't rely on reading it back out of `files` from inside those callbacks.
+
+## `retryUpload` runs your checks again
+
+Every retry goes through the same checks as the first attempt: `onUploadRetry` runs first, then `beforeUpload`, and either one can throw to reject the retry without starting a request. The file stays in `error`, and `onUploadError` and `onUploadFinish` fire again with the new rejection.
+
+This means a file `beforeUpload` rejected can't be uploaded just by retrying it, while a file rejected for a reason that has since changed (for example, the user freed up quota) goes through.
+
+Before 0.5.0, `retryUpload` did not run `beforeUpload`, so a file it rejected could be uploaded by retrying it.
 
 ## `retryUpload` resumes a chunked upload — it doesn't restart
 
