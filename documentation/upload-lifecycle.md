@@ -2,6 +2,73 @@
 
 This page documents exactly what `status` transitions happen, and in what order, for every outcome an upload can have — including the cases that tend to surprise people: a chunk failing partway through, cancelling mid-upload, and what actually happens when you retry after a failure.
 
+## See it in action
+
+This is the [basic usage](/get-started#basic-usage) example with every lifecycle callback added. Each callback shows a toast (using [Sonner](https://ui.shadcn.com/docs/components/radix/sonner)) saying when it ran:
+
+```tsx
+import { useCourier } from "use-courier";
+import { toast } from "sonner";
+
+export function UploadForm() {
+  const { files, addFile, retryUpload, removeFile } = useCourier({
+    url: "/api/uploads",
+    beforeUpload: ({ item }) => {
+      toast("I ran before the upload", { description: item.file.name });
+    },
+    onUploadSuccess: ({ item }) => {
+      toast.success("I ran after a successful upload", {
+        description: item.file.name,
+      });
+    },
+    onUploadError: ({ item, error }) => {
+      toast.error("I ran because the upload failed", {
+        description: `${item.file.name}: ${error.message}`,
+      });
+    },
+    onUploadFinish: ({ item }) => {
+      toast("I ran after the upload, success or failure", {
+        description: item.file.name,
+      });
+    },
+    onUploadRetry: ({ item }) => {
+      toast.info("I ran before the retry", { description: item.file.name });
+    },
+    onRemoveFile: ({ item }) => {
+      toast("I ran when the file was removed", {
+        description: item.file.name,
+      });
+    },
+  });
+
+  function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (file) addFile(file);
+  }
+
+  return (
+    <>
+      <input type="file" onChange={handleFileChange} />
+      {files.map((item) => (
+        <p key={item.id}>
+          {item.file.name}: {item.status} ({item.uploadProgress}%)
+          {item.status === "error" && (
+            <button onClick={() => retryUpload(item.id)}>Retry</button>
+          )}
+          <button onClick={() => removeFile(item.id)}>Remove</button>
+        </p>
+      ))}
+    </>
+  );
+}
+```
+
+### Try it
+
+Upload a file and watch the toasts. A successful upload shows `beforeUpload`, then `onUploadSuccess`, then `onUploadFinish`. Turn on **Simulate a failed upload** to see `onUploadError` instead, then click Retry to see `onUploadRetry` followed by `beforeUpload` again. Turn on **Reject the file in `beforeUpload`** to see a file rejected before any request is made.
+
+<LifecycleDemo />
+
 ## Status state machine
 
 | From                       | To           | Trigger                                                                                                  |
