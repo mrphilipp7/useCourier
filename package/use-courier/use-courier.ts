@@ -339,7 +339,8 @@ export function useCourier<TUploadResponse>({
 
   /**
    * Re-runs the upload for a file currently in the "error" state. Resolves
-   * with a failure result (no network call) for any other status.
+   * with a failure result (no network call) for any other status, or if
+   * onUploadRetry or beforeUpload rejects the retry.
    *
    * #6: for a chunked upload that failed partway through, this resumes from
    * the chunk that failed (see runChunkedUpload) rather than restarting the
@@ -366,6 +367,11 @@ export function useCourier<TUploadResponse>({
     /** Lifecycle hook for retrying an upload */
     try {
       onUploadRetry && onUploadRetry({ item: file });
+      // #26: beforeUpload gates every attempt, not just the first — otherwise
+      // a file it rejected (e.g. too large) could be uploaded just by
+      // retrying it. Runs last so it's always the final check before a
+      // request, same as in addFile.
+      beforeUpload && beforeUpload({ item: file });
     } catch (error) {
       const rejection =
         error instanceof Error ? error : new FileError(String(error));
