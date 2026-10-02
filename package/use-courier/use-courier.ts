@@ -1,33 +1,39 @@
 import React from "react";
-import {
-  FileError,
-  UploadCancelledError,
-  XhrRequestError,
-  XhrResponseError,
-} from "./errors.js";
+import { notify } from "./callbacks.js";
+import { getResumePercent, type ChunkResumeState } from "./chunked-upload.js";
+import { FileError } from "./errors.js";
+import { createId } from "./ids.js";
+import { getOverallUploadState } from "./overall.js";
+import type { InFlightRequests } from "./transport.js";
 import type {
-  FileChunking,
   OverallUploadState,
   UploadItem,
   UploadResult,
   UseCourierProps,
 } from "./types.js";
+import { uploadFile } from "./upload-file.js";
+import { useLatest } from "./use-latest.js";
 
 /**
  * Generic file-upload hook: tracks files, uploads them via XHR (for progress
  * events), and exposes lifecycle callbacks so consumers can layer their own
  * validation/side effects on top without forking the hook.
+ *
+ * This file holds everything that touches the hook's state. The stateless
+ * pieces live alongside it: the XHR transport (transport.ts), whole-file vs
+ * chunked dispatch (upload-file.ts), chunking (chunked-upload.ts), the
+ * overall aggregate (overall.ts), id generation (ids.ts), and safe callback
+ * invocation (callbacks.ts).
  */
-export function useCourier<TUploadResponse>({
-  url,
-  beforeUpload,
-  onUploadSuccess,
-  onUploadError,
-  onUploadFinish,
-  onUploadRetry,
-  onRemoveFile,
-  fileChunking,
-}: UseCourierProps) {
+export function useCourier<TUploadResponse>(props: UseCourierProps) {
+  /**
+   * #29: url, fileChunking, and every callback are read through this, never
+   * from props directly. An upload (or a retryUpload/removeFile reference
+   * held by a callback) outlives the render it came from, and that render's
+   * props would be stale by the time it finishes.
+   */
+  const optionsRef = useLatest(props);
+
   const [files, setFiles] = React.useState<UploadItem[]>([]);
   /**
    * #21: always-current mirror of files, for lookups in retryUpload and
@@ -37,24 +43,14 @@ export function useCourier<TUploadResponse>({
    * from inside onUploadError. Only written through commitFiles.
    */
   const filesRef = React.useRef<UploadItem[]>([]);
-  const URL = url;
-  const xhrsRef = React.useRef<Map<string, XMLHttpRequest>>(new Map());
-  /**
-   * #6: Tracks how far a chunked upload got before it failed, keyed by file
-   * id, so retryUpload can resume at the chunk that failed instead of
-   * restarting the whole file from chunk 0 under a brand-new uploadId. Only
-   * ever holds entries for chunked uploads that are currently in the
-   * "error" state — see the cleanup in runChunkedUpload and removeFile.
-   */
-  const chunkProgressRef = React.useRef<
-    Map<string, { uploadId: string; nextChunkIndex: number }>
-  >(new Map());
+  const inFlightRef = React.useRef<InFlightRequests>(new Map());
+  const resumeStateRef = React.useRef<ChunkResumeState>(new Map());
 
   // Abort any uploads still in flight when the consumer unmounts.
   React.useEffect(() => {
-    const xhrs = xhrsRef.current;
+    const inFlight = inFlightRef.current;
     return () => {
-      xhrs.forEach((xhr) => xhr.abort());
+      inFlight.forEach((xhr) => xhr.abort());
     };
   }, []);
 
@@ -76,184 +72,35 @@ export function useCourier<TUploadResponse>({
   }
 
   /**
-   * Low-level XHR transport (not fetch, so upload progress events are
-   * available): sends formData to endpoint, tracking the in-flight request
-   * under trackingId so removeFile/unmount can abort it. Shared by the
-   * whole-file path (runUpload) and, per chunk, the chunked-upload path.
-   *
-   * parseResponse: false skips the body entirely (any 2xx resolves with
-   * undefined) — used for intermediate chunks, whose responses are never
-   * read, so a server can answer them with an empty 204.
+   * #19: the file as it is right now, for passing to callbacks — so a
+   * callback's item matches what's in files at that moment instead of
+   * whatever it was when the upload started. A file that's no longer
+   * tracked (removeFile cancelled it) falls back to its last known state
+   * with the same updates applied.
    */
-  function sendRequest(
-    trackingId: string,
-    endpoint: string,
-    formData: FormData,
-    onProgress: (percent: number) => void,
-    parseResponse = true,
-  ): Promise<TUploadResponse> {
-    return new Promise<TUploadResponse>((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
-      xhrsRef.current.set(trackingId, xhr);
-
-      const cleanup = () => xhrsRef.current.delete(trackingId);
-
-      xhr.upload.addEventListener("progress", (event) => {
-        if (!event.lengthComputable) return;
-
-        const percent = (event.loaded / event.total) * 100;
-
-        onProgress(percent);
-      });
-
-      xhr.addEventListener("load", () => {
-        cleanup();
-        if (xhr.status >= 200 && xhr.status < 300) {
-          if (!parseResponse) {
-            resolve(undefined as TUploadResponse);
-            return;
-          }
-          // #18: a throw here would escape the listener and leave the
-          // promise pending forever, so a non-JSON body (empty 204, plain
-          // text, an HTML proxy page) must reject instead.
-          try {
-            resolve(JSON.parse(xhr.responseText) as TUploadResponse);
-          } catch {
-            reject(new XhrResponseError("Response was not valid JSON"));
-          }
-        } else {
-          reject(
-            new XhrResponseError(`Upload failed with status ${xhr.status}`),
-          );
-        }
-      });
-
-      xhr.addEventListener("error", () => {
-        cleanup();
-        reject(new XhrRequestError("Network error during upload"));
-      });
-
-      xhr.addEventListener("abort", () => {
-        cleanup();
-        reject(new UploadCancelledError());
-      });
-
-      xhr.open("POST", endpoint);
-      xhr.send(formData);
-    });
-  }
-
-  /** Sends the whole file in one request via sendRequest. */
-  function runUpload(
-    uploadedFile: UploadItem,
-    onProgress: (percent: number) => void,
-  ): Promise<TUploadResponse> {
-    const formData = new FormData();
-    formData.append("file", uploadedFile.file);
-
-    return sendRequest(uploadedFile.id, URL, formData, onProgress);
+  function currentItem(
+    item: UploadItem,
+    updates: Partial<UploadItem> = {},
+  ): UploadItem {
+    return (
+      filesRef.current.find((f) => f.id === item.id) ?? { ...item, ...updates }
+    );
   }
 
   /**
-   * Sends a large file as a sequence of smaller requests instead of one.
-   * Each chunk carries uploadId/chunkIndex/totalChunks alongside its bytes
-   * so the server can group and reassemble them; the response from the
-   * final chunk is treated as the upload's result.
-   *
-   * #6: resumes a previously-failed attempt for this file instead of always
-   * starting over. If chunkProgressRef has an entry for this file (left
-   * behind by an earlier attempt that exhausted its chunk retries — see
-   * below), this reuses that same uploadId and picks up at the chunk that
-   * failed, rather than generating a new uploadId and re-sending chunks the
-   * server already has. This is safe because the backend contract already
-   * keys chunks by uploadId + chunkIndex and reassembles once every index
-   * for that uploadId has arrived (see Backend Integration), so resuming
-   * under the same uploadId is indistinguishable from the server's
-   * perspective from a slower single attempt.
+   * Fails an attempt before any request is made (beforeUpload or
+   * onUploadRetry rejected it): marks the file as errored, fires
+   * onUploadError and onUploadFinish, and resolves with the failure.
    */
-  async function runChunkedUpload(
-    uploadedFile: UploadItem,
-    onProgress: (percent: number) => void,
-    chunking: FileChunking,
-  ): Promise<TUploadResponse> {
-    const chunkSize = chunking.chunkSize ?? chunking.threshold;
-    const totalChunks = Math.ceil(uploadedFile.file.size / chunkSize);
-    const maxChunkRetries = chunking.maxChunkRetries ?? 2;
-
-    const resumeFrom = chunkProgressRef.current.get(uploadedFile.id);
-    const uploadId = resumeFrom?.uploadId ?? crypto.randomUUID();
-    const startChunkIndex = resumeFrom?.nextChunkIndex ?? 0;
-
-    let response: TUploadResponse | undefined;
-
-    for (
-      let chunkIndex = startChunkIndex;
-      chunkIndex < totalChunks;
-      chunkIndex++
-    ) {
-      const start = chunkIndex * chunkSize;
-      const end = Math.min(start + chunkSize, uploadedFile.file.size);
-      const chunkBlob = uploadedFile.file.slice(start, end);
-      const chunkBytes = end - start;
-
-      const formData = new FormData();
-      formData.append("file", chunkBlob, uploadedFile.file.name);
-      formData.append("uploadId", uploadId);
-      formData.append("chunkIndex", String(chunkIndex));
-      formData.append("totalChunks", String(totalChunks));
-
-      // Only the final chunk's response becomes the upload result, so it's
-      // the only one that has to be valid JSON.
-      const isFinalChunk = chunkIndex === totalChunks - 1;
-
-      const sendChunk = () =>
-        sendRequest(
-          uploadedFile.id,
-          chunking.route,
-          formData,
-          (chunkPercent) => {
-            // start = bytes from all prior (always full-size) chunks.
-            const bytesSent = start + (chunkPercent / 100) * chunkBytes;
-            onProgress((bytesSent / uploadedFile.file.size) * 100);
-          },
-          isFinalChunk,
-        );
-
-      let attempt = 0;
-      while (true) {
-        try {
-          response = await sendChunk();
-          break;
-        } catch (error) {
-          // A cancellation is intentional — never retry it, propagate immediately.
-          // (No need to record resume progress here: removeFile is the only
-          // way to cancel, and it removes the file from tracking in the same
-          // call, so there's nothing left to resume.)
-          if (error instanceof UploadCancelledError) throw error;
-          if (attempt >= maxChunkRetries) {
-            // #6: out of retries for this chunk — remember where we stopped
-            // (same uploadId, this chunkIndex) so a later retryUpload call
-            // resumes here instead of re-sending every chunk from scratch.
-            chunkProgressRef.current.set(uploadedFile.id, {
-              uploadId,
-              nextChunkIndex: chunkIndex,
-            });
-            throw error;
-          }
-          attempt++;
-        }
-      }
-    }
-
-    // #6: every chunk made it through — nothing left to resume, so drop any
-    // stale marker from an earlier failed attempt for this file.
-    chunkProgressRef.current.delete(uploadedFile.id);
-
-    if (response === undefined) {
-      throw new XhrResponseError("No response received from chunked upload");
-    }
-
-    return response;
+  function rejectAttempt(
+    item: UploadItem,
+    error: Error,
+  ): Promise<UploadResult<TUploadResponse>> {
+    updateFile(item.id, { status: "error" });
+    const errored = currentItem(item, { status: "error" });
+    notify(optionsRef.current.onUploadError, { item: errored, error });
+    notify(optionsRef.current.onUploadFinish, { item: errored });
+    return Promise.resolve({ success: false as const, error });
   }
 
   /**
@@ -262,44 +109,68 @@ export function useCourier<TUploadResponse>({
    * so both go through identical progress/success/error/finish handling.
    */
   function performUpload(
-    uploadFile: UploadItem,
+    item: UploadItem,
   ): Promise<UploadResult<TUploadResponse>> {
     const onProgress = (percent: number) => {
-      updateFile(uploadFile.id, {
+      updateFile(item.id, {
         uploadProgress: Math.round(percent),
         // Bytes fully sent but server hasn't responded yet = processing.
         status: percent >= 100 ? "processing" : "uploading",
       });
     };
 
-    const upload =
-      fileChunking && uploadFile.file.size > fileChunking.threshold
-        ? runChunkedUpload(uploadFile, onProgress, fileChunking)
-        : runUpload(uploadFile, onProgress);
+    const { url, fileChunking } = optionsRef.current;
 
-    return upload
-      .then((data) => {
-        updateFile(uploadFile.id, { status: "done", uploadProgress: 100 });
-        /** Lifecycle hook for any side effects on upload success */
-        onUploadSuccess && onUploadSuccess({ item: uploadFile });
-        return { success: true as const, data };
+    return (
+      uploadFile<TUploadResponse>({
+        item,
+        url,
+        fileChunking,
+        inFlight: inFlightRef.current,
+        resumeState: resumeStateRef.current,
+        onProgress,
       })
-      .catch((error: Error) => {
-        updateFile(uploadFile.id, { status: "error" });
-        /** Lifecycle hook for any side effects on upload failure */
-        onUploadError && onUploadError({ item: uploadFile, error });
-        return { success: false as const, error };
-      })
-      .finally(() => {
-        /** Lifecycle hook for any cleanup/side effects after an upload attempt */
-        onUploadFinish && onUploadFinish({ item: uploadFile });
-      });
+        // #24: settle the upload's outcome first, as its own step. Callbacks
+        // run only after, so nothing they do can move a file between
+        // "done" and "error" or change the result.
+        .then(
+          (data): UploadResult<TUploadResponse> => {
+            updateFile(item.id, { status: "done", uploadProgress: 100 });
+            return { success: true, data };
+          },
+          (error: Error): UploadResult<TUploadResponse> => {
+            updateFile(item.id, { status: "error" });
+            return { success: false, error };
+          },
+        )
+        .then((result) => {
+          const settled = currentItem(
+            item,
+            result.success
+              ? { status: "done", uploadProgress: 100 }
+              : { status: "error" },
+          );
+          const options = optionsRef.current;
+
+          if (result.success) {
+            notify(options.onUploadSuccess, { item: settled });
+          } else {
+            notify(options.onUploadError, {
+              item: settled,
+              error: result.error,
+            });
+          }
+          notify(options.onUploadFinish, { item: settled });
+
+          return result;
+        })
+    );
   }
 
   /** Builds a fresh, untracked UploadItem for a raw File. */
-  function createUploadFile(file: File): UploadItem {
+  function createUploadItem(file: File): UploadItem {
     return {
-      id: crypto.randomUUID(),
+      id: createId(),
       file: file,
       status: "idle",
       uploadProgress: 0,
@@ -315,26 +186,25 @@ export function useCourier<TUploadResponse>({
       });
     }
 
-    const uploadFile = createUploadFile(file);
+    const item = createUploadItem(file);
 
     commitFiles((prev) => [
       ...prev,
-      { ...uploadFile, status: "uploading", uploadProgress: 0 },
+      { ...item, status: "uploading", uploadProgress: 0 },
     ]);
+    const tracked = currentItem(item);
 
     /** Lifecycle hook for pre-upload validation/side effects */
     try {
-      beforeUpload && beforeUpload({ item: uploadFile });
+      optionsRef.current.beforeUpload?.({ item: tracked });
     } catch (error) {
-      const rejection =
-        error instanceof Error ? error : new Error(String(error));
-      updateFile(uploadFile.id, { status: "error" });
-      onUploadError && onUploadError({ item: uploadFile, error: rejection });
-      onUploadFinish && onUploadFinish({ item: uploadFile });
-      return Promise.resolve({ success: false as const, error: rejection });
+      return rejectAttempt(
+        tracked,
+        error instanceof Error ? error : new Error(String(error)),
+      );
     }
 
-    return performUpload(uploadFile);
+    return performUpload(tracked);
   }
 
   /**
@@ -343,7 +213,7 @@ export function useCourier<TUploadResponse>({
    * onUploadRetry or beforeUpload rejects the retry.
    *
    * #6: for a chunked upload that failed partway through, this resumes from
-   * the chunk that failed (see runChunkedUpload) rather than restarting the
+   * the chunk that failed (see uploadInChunks) rather than restarting the
    * whole file — uploadProgress is set to reflect however much had already
    * been sent, instead of resetting to 0 and immediately jumping back up
    * once the resumed chunk's first progress event arrives.
@@ -364,40 +234,32 @@ export function useCourier<TUploadResponse>({
       });
     }
 
+    const { beforeUpload, onUploadRetry, fileChunking } = optionsRef.current;
+
     /** Lifecycle hook for retrying an upload */
     try {
-      onUploadRetry && onUploadRetry({ item: file });
+      onUploadRetry?.({ item: file });
       // #26: beforeUpload gates every attempt, not just the first — otherwise
       // a file it rejected (e.g. too large) could be uploaded just by
       // retrying it. Runs last so it's always the final check before a
       // request, same as in addFile.
-      beforeUpload && beforeUpload({ item: file });
+      beforeUpload?.({ item: file });
     } catch (error) {
-      const rejection =
-        error instanceof Error ? error : new FileError(String(error));
-      updateFile(file.id, { status: "error" });
-      onUploadError && onUploadError({ item: file, error: rejection });
-      onUploadFinish && onUploadFinish({ item: file });
-      return Promise.resolve({ success: false as const, error: rejection });
+      return rejectAttempt(
+        file,
+        error instanceof Error ? error : new FileError(String(error)),
+      );
     }
 
-    // #6: reflect the resumed starting point immediately, if this file has
-    // a resumable chunked upload in progress (see runChunkedUpload) — a
-    // fresh (non-chunked, or never-attempted-chunking) retry still starts
-    // at 0 as before.
-    const resumeFrom = chunkProgressRef.current.get(id);
-    const resumePercent =
-      resumeFrom && fileChunking
-        ? Math.round(
-            ((resumeFrom.nextChunkIndex *
-              (fileChunking.chunkSize ?? fileChunking.threshold)) /
-              file.file.size) *
-              100,
-          )
-        : 0;
-
-    updateFile(id, { status: "uploading", uploadProgress: resumePercent });
-    return performUpload(file);
+    updateFile(id, {
+      status: "uploading",
+      uploadProgress: getResumePercent(
+        file,
+        fileChunking,
+        resumeStateRef.current,
+      ),
+    });
+    return performUpload(currentItem(file));
   }
 
   /** Drops a file from tracked state by id, aborting its upload if one is in flight. */
@@ -405,56 +267,18 @@ export function useCourier<TUploadResponse>({
     const file = filesRef.current.find((f) => f.id === id);
     if (!file) return;
 
-    xhrsRef.current.get(id)?.abort();
+    inFlightRef.current.get(id)?.abort();
     // #6: no point resuming a chunked upload for a file that's no longer tracked.
-    chunkProgressRef.current.delete(id);
+    resumeStateRef.current.delete(id);
     commitFiles((prev) => prev.filter((f) => f.id !== id));
     /** Lifecycle hook for when a file is removed from the upload */
-    onRemoveFile && onRemoveFile({ item: file });
+    notify(optionsRef.current.onRemoveFile, { item: file });
   }
 
-  /**
-   * Worst-status-wins across every tracked file. Doesn't special-case
-   * "processing" vs "uploading" beyond ordering them below "error" — either
-   * one means "still going," which is all that matters at this level.
-   */
-  function getOverallStatus(items: UploadItem[]): UploadItem["status"] {
-    if (items.length === 0) return "idle";
-    if (items.some((item) => item.status === "error")) return "error";
-    if (items.some((item) => item.status === "uploading")) return "uploading";
-    if (items.some((item) => item.status === "processing")) return "processing";
-    return "done";
-  }
-
-  const overall: OverallUploadState = React.useMemo(() => {
-    if (files.length === 0) {
-      return { status: "idle", averageProgress: 0, weightedProgress: 0 };
-    }
-
-    // An errored file's frozen uploadProgress still counts here on purpose —
-    // see the OverallUploadState doc comment in types.ts.
-    const averageProgress = Math.round(
-      files.reduce((sum, file) => sum + file.uploadProgress, 0) / files.length,
-    );
-
-    // Approximates bytes sent per file from its (already-rounded)
-    // uploadProgress, since that's the only per-file number the hook
-    // tracks — precise enough for an aggregate, at the same precision the
-    // rest of the hook already uses.
-    const totalBytes = files.reduce((sum, file) => sum + file.file.size, 0);
-    const bytesSent = files.reduce(
-      (sum, file) => sum + file.file.size * (file.uploadProgress / 100),
-      0,
-    );
-    const weightedProgress =
-      totalBytes === 0 ? 0 : Math.round((bytesSent / totalBytes) * 100);
-
-    return {
-      status: getOverallStatus(files),
-      averageProgress,
-      weightedProgress,
-    };
-  }, [files]);
+  const overall: OverallUploadState = React.useMemo(
+    () => getOverallUploadState(files),
+    [files],
+  );
 
   return {
     files,
