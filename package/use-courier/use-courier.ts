@@ -1,4 +1,5 @@
 import React from "react";
+import { notify } from "./callbacks.js";
 import { getResumePercent, type ChunkResumeState } from "./chunked-upload.js";
 import { FileError } from "./errors.js";
 import { createId } from "./ids.js";
@@ -11,6 +12,7 @@ import type {
   UseCourierProps,
 } from "./types.js";
 import { uploadFile } from "./upload-file.js";
+import { useLatest } from "./use-latest.js";
 
 /**
  * Generic file-upload hook: tracks files, uploads them via XHR (for progress
@@ -20,18 +22,18 @@ import { uploadFile } from "./upload-file.js";
  * This file holds everything that touches the hook's state. The stateless
  * pieces live alongside it: the XHR transport (transport.ts), whole-file vs
  * chunked dispatch (upload-file.ts), chunking (chunked-upload.ts), the
- * overall aggregate (overall.ts), and id generation (ids.ts).
+ * overall aggregate (overall.ts), id generation (ids.ts), and safe callback
+ * invocation (callbacks.ts).
  */
-export function useCourier<TUploadResponse>({
-  url,
-  beforeUpload,
-  onUploadSuccess,
-  onUploadError,
-  onUploadFinish,
-  onUploadRetry,
-  onRemoveFile,
-  fileChunking,
-}: UseCourierProps) {
+export function useCourier<TUploadResponse>(props: UseCourierProps) {
+  /**
+   * #29: url, fileChunking, and every callback are read through this, never
+   * from props directly. An upload (or a retryUpload/removeFile reference
+   * held by a callback) outlives the render it came from, and that render's
+   * props would be stale by the time it finishes.
+   */
+  const optionsRef = useLatest(props);
+
   const [files, setFiles] = React.useState<UploadItem[]>([]);
   /**
    * #21: always-current mirror of files, for lookups in retryUpload and
@@ -70,6 +72,38 @@ export function useCourier<TUploadResponse>({
   }
 
   /**
+   * #19: the file as it is right now, for passing to callbacks — so a
+   * callback's item matches what's in files at that moment instead of
+   * whatever it was when the upload started. A file that's no longer
+   * tracked (removeFile cancelled it) falls back to its last known state
+   * with the same updates applied.
+   */
+  function currentItem(
+    item: UploadItem,
+    updates: Partial<UploadItem> = {},
+  ): UploadItem {
+    return (
+      filesRef.current.find((f) => f.id === item.id) ?? { ...item, ...updates }
+    );
+  }
+
+  /**
+   * Fails an attempt before any request is made (beforeUpload or
+   * onUploadRetry rejected it): marks the file as errored, fires
+   * onUploadError and onUploadFinish, and resolves with the failure.
+   */
+  function rejectAttempt(
+    item: UploadItem,
+    error: Error,
+  ): Promise<UploadResult<TUploadResponse>> {
+    updateFile(item.id, { status: "error" });
+    const errored = currentItem(item, { status: "error" });
+    notify(optionsRef.current.onUploadError, { item: errored, error });
+    notify(optionsRef.current.onUploadFinish, { item: errored });
+    return Promise.resolve({ success: false as const, error });
+  }
+
+  /**
    * Runs the upload for a file and wires the result to state + lifecycle
    * callbacks. Shared by addFile (first attempt) and retryUpload (re-attempt)
    * so both go through identical progress/success/error/finish handling.
@@ -85,30 +119,52 @@ export function useCourier<TUploadResponse>({
       });
     };
 
-    return uploadFile<TUploadResponse>({
-      item,
-      url,
-      fileChunking,
-      inFlight: inFlightRef.current,
-      resumeState: resumeStateRef.current,
-      onProgress,
-    })
-      .then((data) => {
-        updateFile(item.id, { status: "done", uploadProgress: 100 });
-        /** Lifecycle hook for any side effects on upload success */
-        onUploadSuccess && onUploadSuccess({ item });
-        return { success: true as const, data };
+    const { url, fileChunking } = optionsRef.current;
+
+    return (
+      uploadFile<TUploadResponse>({
+        item,
+        url,
+        fileChunking,
+        inFlight: inFlightRef.current,
+        resumeState: resumeStateRef.current,
+        onProgress,
       })
-      .catch((error: Error) => {
-        updateFile(item.id, { status: "error" });
-        /** Lifecycle hook for any side effects on upload failure */
-        onUploadError && onUploadError({ item, error });
-        return { success: false as const, error };
-      })
-      .finally(() => {
-        /** Lifecycle hook for any cleanup/side effects after an upload attempt */
-        onUploadFinish && onUploadFinish({ item });
-      });
+        // #24: settle the upload's outcome first, as its own step. Callbacks
+        // run only after, so nothing they do can move a file between
+        // "done" and "error" or change the result.
+        .then(
+          (data): UploadResult<TUploadResponse> => {
+            updateFile(item.id, { status: "done", uploadProgress: 100 });
+            return { success: true, data };
+          },
+          (error: Error): UploadResult<TUploadResponse> => {
+            updateFile(item.id, { status: "error" });
+            return { success: false, error };
+          },
+        )
+        .then((result) => {
+          const settled = currentItem(
+            item,
+            result.success
+              ? { status: "done", uploadProgress: 100 }
+              : { status: "error" },
+          );
+          const options = optionsRef.current;
+
+          if (result.success) {
+            notify(options.onUploadSuccess, { item: settled });
+          } else {
+            notify(options.onUploadError, {
+              item: settled,
+              error: result.error,
+            });
+          }
+          notify(options.onUploadFinish, { item: settled });
+
+          return result;
+        })
+    );
   }
 
   /** Builds a fresh, untracked UploadItem for a raw File. */
@@ -136,20 +192,19 @@ export function useCourier<TUploadResponse>({
       ...prev,
       { ...item, status: "uploading", uploadProgress: 0 },
     ]);
+    const tracked = currentItem(item);
 
     /** Lifecycle hook for pre-upload validation/side effects */
     try {
-      beforeUpload && beforeUpload({ item });
+      optionsRef.current.beforeUpload?.({ item: tracked });
     } catch (error) {
-      const rejection =
-        error instanceof Error ? error : new Error(String(error));
-      updateFile(item.id, { status: "error" });
-      onUploadError && onUploadError({ item, error: rejection });
-      onUploadFinish && onUploadFinish({ item });
-      return Promise.resolve({ success: false as const, error: rejection });
+      return rejectAttempt(
+        tracked,
+        error instanceof Error ? error : new Error(String(error)),
+      );
     }
 
-    return performUpload(item);
+    return performUpload(tracked);
   }
 
   /**
@@ -179,21 +234,21 @@ export function useCourier<TUploadResponse>({
       });
     }
 
+    const { beforeUpload, onUploadRetry, fileChunking } = optionsRef.current;
+
     /** Lifecycle hook for retrying an upload */
     try {
-      onUploadRetry && onUploadRetry({ item: file });
+      onUploadRetry?.({ item: file });
       // #26: beforeUpload gates every attempt, not just the first — otherwise
       // a file it rejected (e.g. too large) could be uploaded just by
       // retrying it. Runs last so it's always the final check before a
       // request, same as in addFile.
-      beforeUpload && beforeUpload({ item: file });
+      beforeUpload?.({ item: file });
     } catch (error) {
-      const rejection =
-        error instanceof Error ? error : new FileError(String(error));
-      updateFile(file.id, { status: "error" });
-      onUploadError && onUploadError({ item: file, error: rejection });
-      onUploadFinish && onUploadFinish({ item: file });
-      return Promise.resolve({ success: false as const, error: rejection });
+      return rejectAttempt(
+        file,
+        error instanceof Error ? error : new FileError(String(error)),
+      );
     }
 
     updateFile(id, {
@@ -204,7 +259,7 @@ export function useCourier<TUploadResponse>({
         resumeStateRef.current,
       ),
     });
-    return performUpload(file);
+    return performUpload(currentItem(file));
   }
 
   /** Drops a file from tracked state by id, aborting its upload if one is in flight. */
@@ -217,7 +272,7 @@ export function useCourier<TUploadResponse>({
     resumeStateRef.current.delete(id);
     commitFiles((prev) => prev.filter((f) => f.id !== id));
     /** Lifecycle hook for when a file is removed from the upload */
-    onRemoveFile && onRemoveFile({ item: file });
+    notify(optionsRef.current.onRemoveFile, { item: file });
   }
 
   const overall: OverallUploadState = React.useMemo(

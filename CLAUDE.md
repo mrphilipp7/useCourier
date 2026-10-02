@@ -42,14 +42,20 @@ Before any commit, run the same sequence CI and the pre-push hook enforce: `lint
 
 (This split exists because editors only auto-discover a file literally named `tsconfig.json`; a separate test-only config was invisible to the IDE.)
 
-### The hook (`package/use-courier/use-courier.ts`)
+### The hook (`package/use-courier/`)
+
+`use-courier.ts` holds everything that touches React state (`files`, `commitFiles`, `performUpload`, `addFile`, `retryUpload`, `removeFile`). The stateless pieces are separate modules it imports, none of which use React: `transport.ts` (the XHR wrapper), `upload-file.ts` (whole-file vs chunked dispatch), `chunked-upload.ts` (chunking, chunk retries, resume state), `overall.ts` (the `overall` aggregate), `callbacks.ts` (`notify`, which runs a callback and reports anything it throws), and `ids.ts`. Keep that split: new logic that doesn't need hook state goes in its own module. Only `index.ts` is public; nothing else is re-exported.
 
 Uses `XMLHttpRequest`, not `fetch` — deliberately, because `fetch` cannot report upload progress. That constraint is why the transport is built the way it is.
 
-Two refs hold transient per-file state that's intentionally kept out of the public `files` array:
+Refs hold transient state that's intentionally kept out of the public `files` array:
 
-- `xhrsRef: Map<fileId, XMLHttpRequest>` — the current in-flight request per file, so `removeFile`/unmount can `.abort()` it. Only one entry per file at a time, even mid-chunking.
-- `chunkProgressRef: Map<fileId, { uploadId, nextChunkIndex }>` — set when a chunk exhausts `fileChunking.maxChunkRetries`; lets `retryUpload` resume a failed chunked upload at the chunk that actually failed (reusing the same `uploadId`) instead of restarting the whole file from chunk 0. Cleared on full success or `removeFile`.
+- `inFlightRef: Map<fileId, XMLHttpRequest>` — the current in-flight request per file, so `removeFile`/unmount can `.abort()` it. Only one entry per file at a time, even mid-chunking.
+- `resumeStateRef: Map<fileId, { uploadId, nextChunkIndex }>` — set when a chunk exhausts `fileChunking.maxChunkRetries`; lets `retryUpload` resume a failed chunked upload at the chunk that actually failed (reusing the same `uploadId`) instead of restarting the whole file from chunk 0. Cleared on full success or `removeFile`.
+- `filesRef` — an always-current mirror of `files`, written only through `commitFiles`. Lookups (`retryUpload`, `removeFile`, the `item` passed to callbacks) read it, never the `files` from a render's closure, which may be stale.
+- `optionsRef` (via `useLatest`) — the latest props. Every callback, `url`, and `fileChunking` is read through it, because an upload outlives the render it started in.
+
+Callbacks split into two kinds: `beforeUpload`/`onUploadRetry` are gates — throwing from them rejects the attempt, so they're called directly. The rest are notifications and always go through `notify`, so a throw is reported and can never change a file's status or the `UploadResult`.
 
 Chunks within one file are always sent strictly sequentially, never in parallel. The chunk-endpoint contract keys chunks by `uploadId` + `chunkIndex` and reassembles once every index has arrived — this is exactly why resuming under the same `uploadId` after a retry needs no backend changes.
 

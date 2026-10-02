@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import React from "react";
 import { act, renderHook } from "@testing-library/react";
 import {
   FileError,
@@ -1142,5 +1143,363 @@ describe("overall", () => {
     // Only file B (still uploading) remains — back to "uploading", not "error".
     expect(result.current.overall.status).toBe("uploading");
     expect(result.current.files).toHaveLength(1);
+  });
+});
+
+describe("throwing callbacks (#24)", () => {
+  let originalReportError: typeof globalThis.reportError;
+  const reportError = mock();
+
+  beforeEach(() => {
+    originalReportError = globalThis.reportError;
+    globalThis.reportError = reportError;
+    reportError.mockClear();
+  });
+
+  afterEach(() => {
+    globalThis.reportError = originalReportError;
+  });
+
+  test("a throwing onUploadSuccess doesn't turn a successful upload into an error", async () => {
+    const bug = new Error("bug in onUploadSuccess");
+    const onUploadError = mock();
+    const onUploadFinish = mock();
+    const { result } = renderHook(() =>
+      useCourier<{ ok: true }>({
+        url: "/api/uploads",
+        onUploadSuccess: () => {
+          throw bug;
+        },
+        onUploadError,
+        onUploadFinish,
+      }),
+    );
+
+    let uploadPromise!: Promise<unknown>;
+    act(() => {
+      uploadPromise = result.current.addFile(makeFile());
+    });
+
+    let outcome: unknown;
+    await act(async () => {
+      MockXMLHttpRequest.last.respondWith(200, { ok: true });
+      outcome = await uploadPromise;
+    });
+
+    expect(outcome).toEqual({ success: true, data: { ok: true } });
+    expect(result.current.files[0]?.status).toBe("done");
+    expect(onUploadError).not.toHaveBeenCalled();
+    expect(onUploadFinish).toHaveBeenCalledTimes(1);
+    expect(reportError).toHaveBeenCalledWith(bug);
+  });
+
+  test("a throwing onUploadError still resolves addFile with a failure result", async () => {
+    const bug = new Error("bug in onUploadError");
+    const onUploadFinish = mock();
+    const { result } = renderHook(() =>
+      useCourier({
+        url: "/api/uploads",
+        onUploadError: () => {
+          throw bug;
+        },
+        onUploadFinish,
+      }),
+    );
+
+    let uploadPromise!: Promise<unknown>;
+    act(() => {
+      uploadPromise = result.current.addFile(makeFile());
+    });
+
+    let outcome: unknown;
+    await act(async () => {
+      MockXMLHttpRequest.last.respondWith(500, {});
+      outcome = await uploadPromise;
+    });
+
+    expect(outcome).toMatchObject({ success: false });
+    expect((outcome as { error: Error }).error).toBeInstanceOf(
+      XhrResponseError,
+    );
+    expect(result.current.files[0]?.status).toBe("error");
+    expect(onUploadFinish).toHaveBeenCalledTimes(1);
+    expect(reportError).toHaveBeenCalledWith(bug);
+  });
+
+  test("a throwing onUploadError after a beforeUpload rejection still resolves", async () => {
+    const { result } = renderHook(() =>
+      useCourier({
+        url: "/api/uploads",
+        beforeUpload: () => {
+          throw new Error("rejected");
+        },
+        onUploadError: () => {
+          throw new Error("bug in onUploadError");
+        },
+      }),
+    );
+
+    let outcome: unknown;
+    await act(async () => {
+      outcome = await result.current.addFile(makeFile());
+    });
+
+    expect((outcome as { error: Error }).error.message).toBe("rejected");
+    expect(reportError).toHaveBeenCalledTimes(1);
+  });
+
+  test("a throwing onUploadFinish doesn't change the result", async () => {
+    const { result } = renderHook(() =>
+      useCourier<{ ok: true }>({
+        url: "/api/uploads",
+        onUploadFinish: () => {
+          throw new Error("bug in onUploadFinish");
+        },
+      }),
+    );
+
+    let uploadPromise!: Promise<unknown>;
+    act(() => {
+      uploadPromise = result.current.addFile(makeFile());
+    });
+
+    let outcome: unknown;
+    await act(async () => {
+      MockXMLHttpRequest.last.respondWith(200, { ok: true });
+      outcome = await uploadPromise;
+    });
+
+    expect(outcome).toEqual({ success: true, data: { ok: true } });
+    expect(reportError).toHaveBeenCalledTimes(1);
+  });
+
+  test("a throwing onRemoveFile doesn't make removeFile throw", async () => {
+    let addedId: string | undefined;
+    const { result } = renderHook(() =>
+      useCourier({
+        url: "/api/uploads",
+        beforeUpload: ({ item }) => {
+          addedId = item.id;
+        },
+        onRemoveFile: () => {
+          throw new Error("bug in onRemoveFile");
+        },
+      }),
+    );
+
+    let uploadPromise!: Promise<unknown>;
+    act(() => {
+      uploadPromise = result.current.addFile(makeFile());
+    });
+    expect(() => act(() => result.current.removeFile(addedId!))).not.toThrow();
+    // Let the aborted upload settle inside act.
+    await act(async () => {
+      await uploadPromise;
+    });
+
+    expect(result.current.files).toHaveLength(0);
+    expect(reportError).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("callbacks use the latest render (#29)", () => {
+  test("callbacks see current state, not the state from when the upload started", async () => {
+    const { result } = renderHook(() => {
+      const [done, setDone] = React.useState<string[]>([]);
+      const courier = useCourier({
+        url: "/api/uploads",
+        // Deliberately not the functional setState form.
+        onUploadSuccess: ({ item }) => setDone([...done, item.file.name]),
+      });
+      return { courier, done };
+    });
+
+    let first!: Promise<unknown>;
+    let second!: Promise<unknown>;
+    act(() => {
+      first = result.current.courier.addFile(makeFile(4, "one.txt"));
+      second = result.current.courier.addFile(makeFile(4, "two.txt"));
+    });
+    const [xhrOne, xhrTwo] = MockXMLHttpRequest.instances;
+
+    await act(async () => {
+      xhrOne!.respondWith(200, {});
+      await first;
+    });
+    await act(async () => {
+      xhrTwo!.respondWith(200, {});
+      await second;
+    });
+
+    expect(result.current.done).toEqual(["one.txt", "two.txt"]);
+  });
+
+  test("a callback replaced mid-upload is the one that runs", async () => {
+    const original = mock();
+    const replacement = mock();
+    const { result, rerender } = renderHook(
+      ({ onUploadSuccess }) =>
+        useCourier({ url: "/api/uploads", onUploadSuccess }),
+      { initialProps: { onUploadSuccess: original } },
+    );
+
+    let uploadPromise!: Promise<unknown>;
+    act(() => {
+      uploadPromise = result.current.addFile(makeFile());
+    });
+    rerender({ onUploadSuccess: replacement });
+
+    await act(async () => {
+      MockXMLHttpRequest.last.respondWith(200, {});
+      await uploadPromise;
+    });
+
+    expect(original).not.toHaveBeenCalled();
+    expect(replacement).toHaveBeenCalledTimes(1);
+  });
+
+  test("a retry uses the latest url", async () => {
+    const { result, rerender } = renderHook(({ url }) => useCourier({ url }), {
+      initialProps: { url: "/api/v1/uploads" },
+    });
+
+    let uploadPromise!: Promise<unknown>;
+    act(() => {
+      uploadPromise = result.current.addFile(makeFile());
+    });
+    await act(async () => {
+      MockXMLHttpRequest.last.respondWith(500, {});
+      await uploadPromise;
+    });
+
+    // A retryUpload held from before the url changed — e.g. one captured by
+    // a callback — must still use the new url.
+    const heldRetryUpload = result.current.retryUpload;
+    rerender({ url: "/api/v2/uploads" });
+    act(() => {
+      void heldRetryUpload(result.current.files[0]!.id);
+    });
+
+    expect(MockXMLHttpRequest.last.url).toBe("/api/v2/uploads");
+  });
+});
+
+describe("callback item reflects the file's current state (#19)", () => {
+  test("beforeUpload receives the tracked item", () => {
+    const beforeUpload = mock();
+    const { result } = renderHook(() =>
+      useCourier({ url: "/api/uploads", beforeUpload }),
+    );
+
+    act(() => {
+      void result.current.addFile(makeFile());
+    });
+
+    const [{ item }] = beforeUpload.mock.calls[0] as [{ item: unknown }];
+    expect(item).toEqual(result.current.files[0]);
+    expect(result.current.files[0]?.status).toBe("uploading");
+  });
+
+  test("onUploadSuccess and onUploadFinish see the file as done", async () => {
+    const onUploadSuccess = mock();
+    const onUploadFinish = mock();
+    const { result } = renderHook(() =>
+      useCourier({ url: "/api/uploads", onUploadSuccess, onUploadFinish }),
+    );
+
+    let uploadPromise!: Promise<unknown>;
+    act(() => {
+      uploadPromise = result.current.addFile(makeFile());
+    });
+    await act(async () => {
+      MockXMLHttpRequest.last.respondWith(200, {});
+      await uploadPromise;
+    });
+
+    for (const callback of [onUploadSuccess, onUploadFinish]) {
+      expect(callback.mock.calls[0]?.[0]).toMatchObject({
+        item: { status: "done", uploadProgress: 100 },
+      });
+    }
+  });
+
+  test("onUploadError sees the file as errored, with its progress when it failed", async () => {
+    const onUploadError = mock();
+    const { result } = renderHook(() =>
+      useCourier({ url: "/api/uploads", onUploadError }),
+    );
+
+    let uploadPromise!: Promise<unknown>;
+    act(() => {
+      uploadPromise = result.current.addFile(makeFile());
+    });
+    act(() => {
+      MockXMLHttpRequest.last.emitUploadProgress(40);
+    });
+    await act(async () => {
+      MockXMLHttpRequest.last.respondWithNetworkError();
+      await uploadPromise;
+    });
+
+    expect(onUploadError.mock.calls[0]?.[0]).toMatchObject({
+      item: { status: "error", uploadProgress: 40 },
+    });
+  });
+
+  test("a successful retry reports done, not the error state it started from", async () => {
+    const onUploadSuccess = mock();
+    const { result } = renderHook(() =>
+      useCourier({ url: "/api/uploads", onUploadSuccess }),
+    );
+
+    let uploadPromise!: Promise<unknown>;
+    act(() => {
+      uploadPromise = result.current.addFile(makeFile());
+    });
+    await act(async () => {
+      MockXMLHttpRequest.last.respondWith(500, {});
+      await uploadPromise;
+    });
+
+    let retryPromise!: Promise<unknown>;
+    act(() => {
+      retryPromise = result.current.retryUpload(result.current.files[0]!.id);
+    });
+    await act(async () => {
+      MockXMLHttpRequest.last.respondWith(200, {});
+      await retryPromise;
+    });
+
+    expect(onUploadSuccess.mock.calls[0]?.[0]).toMatchObject({
+      item: { status: "done" },
+    });
+  });
+
+  test("a removed file's cancellation still reports it as errored", async () => {
+    const onUploadError = mock();
+    let addedId: string | undefined;
+    const { result } = renderHook(() =>
+      useCourier({
+        url: "/api/uploads",
+        onUploadError,
+        beforeUpload: ({ item }) => {
+          addedId = item.id;
+        },
+      }),
+    );
+
+    let uploadPromise!: Promise<unknown>;
+    act(() => {
+      uploadPromise = result.current.addFile(makeFile());
+    });
+    await act(async () => {
+      result.current.removeFile(addedId!);
+      await uploadPromise;
+    });
+
+    expect(onUploadError.mock.calls[0]?.[0]).toMatchObject({
+      item: { id: addedId, status: "error" },
+      error: expect.any(UploadCancelledError),
+    });
   });
 });

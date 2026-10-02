@@ -20,6 +20,8 @@ const { addFile } = useCourier<UploadResponse>({
 
 ### Options
 
+Every callback receives `{ item }` (plus `error` for `onUploadError`), where `item` is the file's current state. See [How callbacks behave](/upload-lifecycle#how-callbacks-behave) for what `item` contains in each callback and what happens if a callback throws.
+
 #### `url`
 
 - **Type:** `string`

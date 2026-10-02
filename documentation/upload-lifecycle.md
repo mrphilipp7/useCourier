@@ -81,6 +81,14 @@ Upload a file and watch the toasts. A successful upload shows `beforeUpload`, th
 
 `idle` exists as a type but isn't a state you'll ever observe in `files` — every file is already `uploading` by the time `addFile` adds it to the list. `done` and `error` are terminal: the only way out of `error` is `retryUpload`, and there's no way out of `done` at all.
 
+## How callbacks behave
+
+- **`item` is the file as it is when the callback runs**, matching its entry in `files` at that moment. In `beforeUpload` it's `uploading` at 0%; in `onUploadSuccess` it's `done` at 100%; in `onUploadError` it's `error`, with `uploadProgress` frozen where the upload stopped. For a file `removeFile` cancelled, it's the file's last known state marked `error`, since the file is no longer in `files`.
+- **The latest version of each callback is the one that runs.** An upload can outlast the render it started in, so the hook always calls the callbacks, and uses `url` and `fileChunking`, from the most recent render. Callbacks can read current props and state without stale values.
+- **A callback that throws can't break an upload.** If `onUploadSuccess`, `onUploadError`, `onUploadFinish`, or `onRemoveFile` throws, the error is reported with the browser's [`reportError`](https://developer.mozilla.org/en-US/docs/Web/API/Window/reportError) (falling back to `console.error`), which logs it and reaches error-tracking tools. The file's `status` and the result `addFile`/`retryUpload` resolve with are unaffected. `beforeUpload` and `onUploadRetry` are different: throwing from them is how you reject a file.
+
+Before 0.6.0, `item` was the file as it was when the upload started (so `onUploadSuccess` saw `status: "idle"`), callbacks came from the render where the upload started, and a throwing `onUploadSuccess` marked a successful upload as `error`.
+
 ## When a chunk fails
 
 Each chunk is retried independently, up to `fileChunking.maxChunkRetries` (default `2`) **additional** attempts, reusing the same `uploadId` and `chunkIndex` — earlier, already-succeeded chunks are not re-sent.
