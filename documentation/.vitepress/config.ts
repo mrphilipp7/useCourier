@@ -15,7 +15,10 @@ export default defineConfig({
     sidebar: [
       {
         text: "Introduction",
-        items: [{ text: "Getting Started", link: "/get-started" }],
+        items: [
+          { text: "Getting Started", link: "/get-started" },
+          { text: "Recipes", link: "/recipes" },
+        ],
       },
       {
         text: "API Reference",
