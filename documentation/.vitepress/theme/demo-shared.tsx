@@ -30,6 +30,8 @@ function createDemoXHR(shouldFail: () => boolean) {
 
     open() {}
 
+    setRequestHeader() {}
+
     send(formData?: FormData) {
       const file = formData?.get("file");
       const fileName = file instanceof File ? file.name : "file";

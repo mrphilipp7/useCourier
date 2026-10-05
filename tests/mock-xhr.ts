@@ -33,7 +33,11 @@ export class MockXMLHttpRequest extends MockEventTarget {
   method?: string;
   url?: string;
   body?: FormData;
+  requestHeaders: Record<string, string> = {};
+  withCredentials = false;
   aborted = false;
+  /** withCredentials as it was when send() was called. */
+  sentWithCredentials?: boolean;
 
   constructor() {
     super();
@@ -45,8 +49,17 @@ export class MockXMLHttpRequest extends MockEventTarget {
     this.url = url;
   }
 
+  /** Like a real XHR, headers can only be set between open() and send(). */
+  setRequestHeader(name: string, value: string) {
+    if (this.method === undefined || this.body !== undefined) {
+      throw new Error("setRequestHeader called outside open()/send()");
+    }
+    this.requestHeaders[name] = value;
+  }
+
   send(body?: FormData) {
     this.body = body;
+    this.sentWithCredentials = this.withCredentials;
   }
 
   abort() {

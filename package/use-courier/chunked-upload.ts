@@ -1,5 +1,10 @@
 import { UploadCancelledError, XhrResponseError } from "./errors.js";
 import { createId } from "./ids.js";
+import {
+  buildFormData,
+  resolveHeaders,
+  type RequestOptions,
+} from "./request-options.js";
 import { sendRequest, type InFlightRequests } from "./transport.js";
 import type { FileChunking, UploadItem } from "./types.js";
 
@@ -42,8 +47,10 @@ export function getResumePercent(
 export type UploadInChunksOptions = {
   item: UploadItem;
   chunking: FileChunking;
+  request: RequestOptions;
   inFlight: InFlightRequests;
   resumeState: ChunkResumeState;
+  isCancelled: () => boolean;
   onProgress: (percent: number) => void;
 };
 
@@ -67,8 +74,10 @@ export type UploadInChunksOptions = {
 export async function uploadInChunks<TResponse>({
   item,
   chunking,
+  request,
   inFlight,
   resumeState,
+  isCancelled,
   onProgress,
 }: UploadInChunksOptions): Promise<TResponse> {
   const chunkSize = getChunkSize(chunking);
@@ -91,11 +100,11 @@ export async function uploadInChunks<TResponse>({
     const chunkBlob = item.file.slice(start, end);
     const chunkBytes = end - start;
 
-    const formData = new FormData();
-    formData.append("file", chunkBlob, item.file.name);
-    formData.append("uploadId", uploadId);
-    formData.append("chunkIndex", String(chunkIndex));
-    formData.append("totalChunks", String(totalChunks));
+    const formData = buildFormData(request, item, chunkBlob, {
+      uploadId,
+      chunkIndex: String(chunkIndex),
+      totalChunks: String(totalChunks),
+    });
 
     // Only the final chunk's response becomes the upload result, so it's
     // the only one that has to be valid JSON.
@@ -113,6 +122,10 @@ export async function uploadInChunks<TResponse>({
           onProgress((bytesSent / item.file.size) * 100);
         },
         parseResponse: isFinalChunk,
+        method: request.method,
+        getHeaders: () => resolveHeaders(request, item),
+        withCredentials: request.withCredentials,
+        isCancelled,
       });
 
     let attempt = 0;

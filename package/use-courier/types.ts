@@ -41,8 +41,33 @@ export type OverallUploadState = {
   weightedProgress: number;
 };
 
+/** Header name → value, sent with an upload request. */
+export type UploadHeaders = Record<string, string>;
+
+/** Extra multipart form fields sent alongside the file. */
+export type UploadFormFields = Record<string, string>;
+
 export type UseCourierProps = {
   url: string;
+  /** HTTP method for every upload request, including chunks. Defaults to "POST". */
+  method?: "POST" | "PUT" | "PATCH";
+  /**
+   * Headers for every upload request, including each chunk and each retry.
+   * A function is called once per request, so it can return a fresh auth
+   * token every time, and it may return a promise.
+   */
+  headers?:
+    | UploadHeaders
+    | ((context: {
+        item: UploadItem;
+      }) => UploadHeaders | Promise<UploadHeaders>);
+  /** Send cookies and HTTP auth on cross-origin requests (XMLHttpRequest.withCredentials). Defaults to false. */
+  withCredentials?: boolean;
+  /** Form field name the file (or each chunk) is sent under. Defaults to "file". */
+  fieldName?: string;
+  /** Extra form fields sent with every upload request, ahead of the file. A function is called once per request. */
+  formFields?:
+    UploadFormFields | ((context: { item: UploadItem }) => UploadFormFields);
   /** Runs before the upload starts. Throw here to reject a file (e.g. failed validation) without aborting other files in the same batch. */
   beforeUpload?: ({ item }: { item: UploadItem }) => void;
   /** Runs on upload success. */

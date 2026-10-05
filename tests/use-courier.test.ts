@@ -1503,3 +1503,296 @@ describe("callback item reflects the file's current state (#19)", () => {
     });
   });
 });
+
+describe("request options (#20)", () => {
+  /** Field names of a request body, in the order they were appended. */
+  function fieldOrder(xhr: MockXMLHttpRequest) {
+    return Array.from(xhr.body?.keys() ?? []);
+  }
+
+  test('defaults: POST, the file under "file", no headers, no credentials', () => {
+    const { result } = renderHook(() => useCourier({ url: "/api/uploads" }));
+
+    act(() => {
+      void result.current.addFile(makeFile());
+    });
+
+    const xhr = MockXMLHttpRequest.last;
+    expect(xhr.method).toBe("POST");
+    expect(xhr.body?.get("file")).toBeInstanceOf(File);
+    expect(fieldOrder(xhr)).toEqual(["file"]);
+    expect(xhr.requestHeaders).toEqual({});
+    expect(xhr.sentWithCredentials).toBe(false);
+  });
+
+  test("sends method, static headers, withCredentials, fieldName, and formFields", () => {
+    const { result } = renderHook(() =>
+      useCourier({
+        url: "/api/uploads",
+        method: "PUT",
+        headers: { Authorization: "Bearer abc", "X-Client": "web" },
+        withCredentials: true,
+        fieldName: "upload",
+        formFields: { folderId: "42" },
+      }),
+    );
+
+    act(() => {
+      void result.current.addFile(makeFile());
+    });
+
+    const xhr = MockXMLHttpRequest.last;
+    expect(xhr.method).toBe("PUT");
+    expect(xhr.requestHeaders).toEqual({
+      Authorization: "Bearer abc",
+      "X-Client": "web",
+    });
+    expect(xhr.sentWithCredentials).toBe(true);
+    expect(xhr.body?.get("upload")).toBeInstanceOf(File);
+    expect(xhr.body?.get("file")).toBeNull();
+    // Custom fields come before the file, for streaming multipart parsers.
+    expect(fieldOrder(xhr)).toEqual(["folderId", "upload"]);
+  });
+
+  test("headers and formFields functions receive the item", () => {
+    const headers = mock(({ item }: { item: { file: File } }) => ({
+      "X-File-Name": item.file.name,
+    }));
+    const formFields = mock(({ item }: { item: { file: File } }) => ({
+      originalName: item.file.name,
+    }));
+    const { result } = renderHook(() =>
+      useCourier({ url: "/api/uploads", headers, formFields }),
+    );
+
+    act(() => {
+      void result.current.addFile(makeFile(4, "photo.jpg"));
+    });
+
+    expect(MockXMLHttpRequest.last.requestHeaders).toEqual({
+      "X-File-Name": "photo.jpg",
+    });
+    expect(MockXMLHttpRequest.last.body?.get("originalName")).toBe("photo.jpg");
+  });
+
+  test("applies to every chunk, calling the headers function once per request", async () => {
+    let token = 0;
+    const headers = mock(() => ({ Authorization: `Bearer ${++token}` }));
+    const { result } = renderHook(() =>
+      useCourier({
+        url: "/api/uploads",
+        headers,
+        method: "PATCH",
+        fieldName: "upload",
+        formFields: { folderId: "42" },
+        withCredentials: true,
+        fileChunking: {
+          route: "/api/uploads/chunks",
+          threshold: 10,
+          chunkSize: 5,
+          maxChunkRetries: 1,
+        },
+      }),
+    );
+
+    let uploadPromise!: Promise<unknown>;
+    act(() => {
+      uploadPromise = result.current.addFile(makeFile(12));
+    });
+    await act(async () => {
+      MockXMLHttpRequest.last.respondWith(200, {});
+      await Promise.resolve();
+    });
+    // Second chunk fails once, then is retried.
+    await act(async () => {
+      MockXMLHttpRequest.last.respondWith(500, {});
+      await Promise.resolve();
+    });
+    await act(async () => {
+      MockXMLHttpRequest.last.respondWith(200, {});
+      await Promise.resolve();
+    });
+    await act(async () => {
+      MockXMLHttpRequest.last.respondWith(200, { done: true });
+      await uploadPromise;
+    });
+
+    const requests = MockXMLHttpRequest.instances;
+    expect(requests.map((x) => x.requestHeaders.Authorization)).toEqual([
+      "Bearer 1",
+      "Bearer 2",
+      "Bearer 3",
+      "Bearer 4",
+    ]);
+    for (const xhr of requests) {
+      expect(xhr.method).toBe("PATCH");
+      expect(xhr.sentWithCredentials).toBe(true);
+      expect(fieldOrder(xhr)).toEqual([
+        "folderId",
+        "upload",
+        "uploadId",
+        "chunkIndex",
+        "totalChunks",
+      ]);
+    }
+  });
+
+  test("waits for async headers before opening the request", async () => {
+    let resolveToken!: (token: string) => void;
+    const token = new Promise<string>((resolve) => {
+      resolveToken = resolve;
+    });
+    const { result } = renderHook(() =>
+      useCourier({
+        url: "/api/uploads",
+        headers: async () => ({ Authorization: `Bearer ${await token}` }),
+      }),
+    );
+
+    act(() => {
+      void result.current.addFile(makeFile());
+    });
+    expect(MockXMLHttpRequest.instances).toHaveLength(0);
+    expect(result.current.files[0]?.status).toBe("uploading");
+
+    await act(async () => {
+      resolveToken("fresh");
+      await token;
+      await Promise.resolve();
+    });
+
+    expect(MockXMLHttpRequest.instances).toHaveLength(1);
+    expect(MockXMLHttpRequest.last.requestHeaders).toEqual({
+      Authorization: "Bearer fresh",
+    });
+  });
+
+  test("a file removed while async headers are pending never starts a request", async () => {
+    let resolveHeaders!: (headers: Record<string, string>) => void;
+    let addedId: string | undefined;
+    const onUploadError = mock();
+    const { result } = renderHook(() =>
+      useCourier({
+        url: "/api/uploads",
+        headers: () =>
+          new Promise<Record<string, string>>((resolve) => {
+            resolveHeaders = resolve;
+          }),
+        beforeUpload: ({ item }) => {
+          addedId = item.id;
+        },
+        onUploadError,
+      }),
+    );
+
+    let uploadPromise!: Promise<unknown>;
+    act(() => {
+      uploadPromise = result.current.addFile(makeFile());
+    });
+    act(() => {
+      result.current.removeFile(addedId!);
+    });
+
+    let outcome: unknown;
+    await act(async () => {
+      resolveHeaders({ Authorization: "Bearer late" });
+      outcome = await uploadPromise;
+    });
+
+    expect(MockXMLHttpRequest.instances).toHaveLength(0);
+    expect((outcome as { error: Error }).error).toBeInstanceOf(
+      UploadCancelledError,
+    );
+    expect(onUploadError).toHaveBeenCalledTimes(1);
+  });
+
+  test("unmounting while async headers are pending never starts a request", async () => {
+    let resolveHeaders!: (headers: Record<string, string>) => void;
+    const { result, unmount } = renderHook(() =>
+      useCourier({
+        url: "/api/uploads",
+        headers: () =>
+          new Promise<Record<string, string>>((resolve) => {
+            resolveHeaders = resolve;
+          }),
+      }),
+    );
+
+    let uploadPromise!: Promise<unknown>;
+    act(() => {
+      uploadPromise = result.current.addFile(makeFile());
+    });
+    unmount();
+
+    const outcome = await act(async () => {
+      resolveHeaders({});
+      return uploadPromise;
+    });
+
+    expect(MockXMLHttpRequest.instances).toHaveLength(0);
+    expect((outcome as { error: Error }).error).toBeInstanceOf(
+      UploadCancelledError,
+    );
+  });
+
+  test.each([
+    [
+      "a headers function that throws",
+      {
+        headers: () => {
+          throw new Error("no session");
+        },
+      },
+    ],
+    [
+      "async headers that reject",
+      { headers: () => Promise.reject(new Error("no session")) },
+    ],
+    [
+      "a formFields function that throws",
+      {
+        formFields: () => {
+          throw new Error("no session");
+        },
+      },
+    ],
+  ])(
+    "%s fails the upload without making addFile throw",
+    async (_label, options) => {
+      const onUploadError = mock();
+      const { result } = renderHook(() =>
+        useCourier({ url: "/api/uploads", onUploadError, ...options }),
+      );
+
+      let outcome: unknown;
+      await act(async () => {
+        outcome = await result.current.addFile(makeFile());
+      });
+
+      expect((outcome as { error: Error }).error.message).toBe("no session");
+      expect(MockXMLHttpRequest.instances).toHaveLength(0);
+      expect(result.current.files[0]?.status).toBe("error");
+      expect(onUploadError).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  test("a non-Error thrown from headers is wrapped in an Error", async () => {
+    const { result } = renderHook(() =>
+      useCourier({
+        url: "/api/uploads",
+        headers: () => {
+          throw "no session";
+        },
+      }),
+    );
+
+    let outcome: unknown;
+    await act(async () => {
+      outcome = await result.current.addFile(makeFile());
+    });
+
+    const error = (outcome as { error: Error }).error;
+    expect(error).toBeInstanceOf(Error);
+    expect(error.message).toBe("no session");
+  });
+});

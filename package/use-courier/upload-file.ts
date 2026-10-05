@@ -1,4 +1,9 @@
 import { uploadInChunks, type ChunkResumeState } from "./chunked-upload.js";
+import {
+  buildFormData,
+  resolveHeaders,
+  type RequestOptions,
+} from "./request-options.js";
 import { sendRequest, type InFlightRequests } from "./transport.js";
 import type { FileChunking, UploadItem } from "./types.js";
 
@@ -6,8 +11,10 @@ export type UploadFileOptions = {
   item: UploadItem;
   url: string;
   fileChunking: FileChunking | undefined;
+  request: RequestOptions;
   inFlight: InFlightRequests;
   resumeState: ChunkResumeState;
+  isCancelled: () => boolean;
   onProgress: (percent: number) => void;
 };
 
@@ -20,22 +27,31 @@ export function uploadFile<TResponse>({
   item,
   url,
   fileChunking,
+  request,
   inFlight,
   resumeState,
+  isCancelled,
   onProgress,
 }: UploadFileOptions): Promise<TResponse> {
   if (fileChunking && item.file.size > fileChunking.threshold) {
     return uploadInChunks<TResponse>({
       item,
       chunking: fileChunking,
+      request,
       inFlight,
       resumeState,
+      isCancelled,
       onProgress,
     });
   }
 
-  const formData = new FormData();
-  formData.append("file", item.file);
+  let formData: FormData;
+  try {
+    formData = buildFormData(request, item, item.file);
+  } catch (error) {
+    // A throwing formFields function fails the upload, not addFile itself.
+    return Promise.reject(error);
+  }
 
   return sendRequest<TResponse>({
     inFlight,
@@ -43,5 +59,9 @@ export function uploadFile<TResponse>({
     endpoint: url,
     formData,
     onProgress,
+    method: request.method,
+    getHeaders: () => resolveHeaders(request, item),
+    withCredentials: request.withCredentials,
+    isCancelled,
   });
 }
