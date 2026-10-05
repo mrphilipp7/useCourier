@@ -1796,3 +1796,127 @@ describe("request options (#20)", () => {
     expect(error.message).toBe("no session");
   });
 });
+
+describe("response details (#20)", () => {
+  test.each([
+    ["a non-2xx response", 413, '{"error":"too large"}'],
+    ["a 2xx response that isn't JSON", 200, "OK"],
+  ])(
+    "XhrResponseError carries the status and body for %s",
+    async (_label, status, body) => {
+      const { result } = renderHook(() => useCourier({ url: "/api/uploads" }));
+
+      let uploadPromise!: Promise<unknown>;
+      act(() => {
+        uploadPromise = result.current.addFile(makeFile());
+      });
+
+      let outcome: unknown;
+      await act(async () => {
+        MockXMLHttpRequest.last.respondWithRaw(status, body);
+        outcome = await uploadPromise;
+      });
+
+      const error = (outcome as { error: XhrResponseError }).error;
+      expect(error).toBeInstanceOf(XhrResponseError);
+      expect(error.status).toBe(status);
+      expect(error.body).toBe(body);
+    },
+  );
+
+  test("a final chunk's error carries its status", async () => {
+    const { result } = renderHook(() =>
+      useCourier({
+        url: "/api/uploads",
+        fileChunking: {
+          route: "/api/uploads/chunks",
+          threshold: 4,
+          chunkSize: 4,
+          maxChunkRetries: 0,
+        },
+      }),
+    );
+
+    let uploadPromise!: Promise<unknown>;
+    act(() => {
+      uploadPromise = result.current.addFile(makeFile(8));
+    });
+    await act(async () => {
+      MockXMLHttpRequest.last.respondWith(200, {});
+      await Promise.resolve();
+    });
+
+    let outcome: unknown;
+    await act(async () => {
+      MockXMLHttpRequest.last.respondWithRaw(401, "Unauthorized");
+      outcome = await uploadPromise;
+    });
+
+    expect((outcome as { error: XhrResponseError }).error.status).toBe(401);
+  });
+
+  test("XhrResponseError constructed without details defaults status/body", () => {
+    const error = new XhrResponseError("custom");
+    expect(error.status).toBe(0);
+    expect(error.body).toBe("");
+    expect(error.message).toBe("custom");
+  });
+
+  test("onUploadSuccess receives the parsed response as data", async () => {
+    const received: string[] = [];
+    const { result } = renderHook(() =>
+      useCourier<{ url: string }>({
+        url: "/api/uploads",
+        onUploadSuccess: ({ data }) => {
+          // data is typed as the response type.
+          received.push(data.url);
+          // @ts-expect-error -- not a field of { url: string }
+          void data.notAField;
+        },
+      }),
+    );
+
+    let uploadPromise!: Promise<unknown>;
+    act(() => {
+      uploadPromise = result.current.addFile(makeFile());
+    });
+    await act(async () => {
+      MockXMLHttpRequest.last.respondWith(200, { url: "https://cdn.test/f" });
+      await uploadPromise;
+    });
+
+    expect(received).toEqual(["https://cdn.test/f"]);
+  });
+
+  test("a chunked upload's onUploadSuccess gets the final chunk's response", async () => {
+    const onUploadSuccess = mock();
+    const { result } = renderHook(() =>
+      useCourier({
+        url: "/api/uploads",
+        onUploadSuccess,
+        fileChunking: {
+          route: "/api/uploads/chunks",
+          threshold: 4,
+          chunkSize: 4,
+        },
+      }),
+    );
+
+    let uploadPromise!: Promise<unknown>;
+    act(() => {
+      uploadPromise = result.current.addFile(makeFile(8));
+    });
+    await act(async () => {
+      MockXMLHttpRequest.last.respondWithRaw(204, "");
+      await Promise.resolve();
+    });
+    await act(async () => {
+      MockXMLHttpRequest.last.respondWith(200, { assembled: true });
+      await uploadPromise;
+    });
+
+    expect(onUploadSuccess.mock.calls[0]?.[0]).toMatchObject({
+      data: { assembled: true },
+    });
+  });
+});

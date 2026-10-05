@@ -47,7 +47,7 @@ export type UploadHeaders = Record<string, string>;
 /** Extra multipart form fields sent alongside the file. */
 export type UploadFormFields = Record<string, string>;
 
-export type UseCourierProps = {
+export type UseCourierProps<TUploadResponse = unknown> = {
   url: string;
   /** HTTP method for every upload request, including chunks. Defaults to "POST". */
   method?: "POST" | "PUT" | "PATCH";
@@ -70,8 +70,11 @@ export type UseCourierProps = {
     UploadFormFields | ((context: { item: UploadItem }) => UploadFormFields);
   /** Runs before the upload starts. Throw here to reject a file (e.g. failed validation) without aborting other files in the same batch. */
   beforeUpload?: ({ item }: { item: UploadItem }) => void;
-  /** Runs on upload success. */
-  onUploadSuccess?: ({ item }: { item: UploadItem }) => void;
+  /** Runs on upload success, with the server's parsed response as data. */
+  onUploadSuccess?: (context: {
+    item: UploadItem;
+    data: TUploadResponse;
+  }) => void;
   /** Runs on upload error. */
   onUploadError?: ({ item, error }: { item: UploadItem; error: Error }) => void;
   /** Runs after every upload attempt, success or failure. */

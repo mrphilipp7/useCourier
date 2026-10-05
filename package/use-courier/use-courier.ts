@@ -25,7 +25,9 @@ import { useLatest } from "./use-latest.js";
  * overall aggregate (overall.ts), id generation (ids.ts), and safe callback
  * invocation (callbacks.ts).
  */
-export function useCourier<TUploadResponse>(props: UseCourierProps) {
+export function useCourier<TUploadResponse>(
+  props: UseCourierProps<TUploadResponse>,
+) {
   /**
    * #29: url, fileChunking, and every callback are read through this, never
    * from props directly. An upload (or a retryUpload/removeFile reference
@@ -176,7 +178,10 @@ export function useCourier<TUploadResponse>(props: UseCourierProps) {
           const options = optionsRef.current;
 
           if (result.success) {
-            notify(options.onUploadSuccess, { item: settled });
+            notify(options.onUploadSuccess, {
+              item: settled,
+              data: result.data,
+            });
           } else {
             notify(options.onUploadError, {
               item: settled,

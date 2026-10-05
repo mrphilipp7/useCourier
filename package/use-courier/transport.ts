@@ -108,10 +108,20 @@ function openRequest<TResponse>(
         try {
           resolve(JSON.parse(xhr.responseText) as TResponse);
         } catch {
-          reject(new XhrResponseError("Response was not valid JSON"));
+          reject(
+            new XhrResponseError("Response was not valid JSON", {
+              status: xhr.status,
+              body: xhr.responseText,
+            }),
+          );
         }
       } else {
-        reject(new XhrResponseError(`Upload failed with status ${xhr.status}`));
+        reject(
+          new XhrResponseError(`Upload failed with status ${xhr.status}`, {
+            status: xhr.status,
+            body: xhr.responseText,
+          }),
+        );
       }
     });
 
