@@ -24,8 +24,7 @@ export function LifecycleDemo() {
   useDemoXHR(() => simulateFailureRef.current);
 
   const { files, addFile, retryUpload, removeFile } = useCourier<{
-    ok: boolean;
-    fileName: string;
+    url: string;
   }>({
     url: "/demo/uploads",
     beforeUpload: ({ item }) => {
@@ -36,9 +35,9 @@ export function LifecycleDemo() {
         throw new Error("Rejected by beforeUpload");
       }
     },
-    onUploadSuccess: ({ item }) => {
+    onUploadSuccess: ({ item, data }) => {
       toast.success("onUploadSuccess", {
-        description: `I ran because ${item.file.name} uploaded successfully`,
+        description: `I ran because ${item.file.name} uploaded successfully. The server says it's at ${data.url}`,
       });
     },
     onUploadError: ({ item, error }) => {
