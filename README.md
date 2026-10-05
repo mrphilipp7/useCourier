@@ -17,6 +17,7 @@ A headless React hook for file uploads with real progress tracking, retries, can
 - **Retries** — re-run a failed upload without asking the user to re-select the file
 - **Cancellation** — abort an in-flight upload, or every upload in flight on unmount
 - **Chunked uploads** — automatically splits large files into sequential requests, retrying failed chunks independently
+- **Authenticated APIs** — send auth headers (including async tokens), cookies, and extra form fields with every request
 - **Lifecycle callbacks** — `beforeUpload`, `onUploadSuccess`, `onUploadError`, `onUploadFinish`, `onUploadRetry`, `onRemoveFile`
 - **Headless** — no UI, no styling opinions; works with any component library
 - **Typed** — full TypeScript support, generic over your API's response shape

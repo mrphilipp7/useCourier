@@ -20,7 +20,7 @@ const { addFile } = useCourier<UploadResponse>({
 
 ### Options
 
-Every callback receives `{ item }` (plus `error` for `onUploadError`), where `item` is the file's current state. See [How callbacks behave](/upload-lifecycle#how-callbacks-behave) for what `item` contains in each callback and what happens if a callback throws.
+Every callback receives `{ item }` (plus `data` for `onUploadSuccess` and `error` for `onUploadError`), where `item` is the file's current state. See [How callbacks behave](/upload-lifecycle#how-callbacks-behave) for what `item` contains in each callback and what happens if a callback throws.
 
 #### `url`
 
@@ -28,6 +28,64 @@ Every callback receives `{ item }` (plus `error` for `onUploadError`), where `it
 - **Required**
 
 The endpoint that receives whole-file uploads.
+
+#### `method`
+
+- **Type:** `"POST" | "PUT" | "PATCH"`
+- **Optional** (default `"POST"`)
+
+The HTTP method for every upload request, including chunk requests.
+
+#### `headers`
+
+- **Type:** `Record<string, string> | (context: { item: UploadItem }) => Record<string, string> | Promise<Record<string, string>>`
+- **Optional**
+
+Headers sent with every upload request, such as an `Authorization` token. Pass a function to compute them per file. It's called once per request, including every chunk and every retry, so it can return a fresh token each time, and it can be `async`:
+
+```tsx
+const { addFile } = useCourier({
+  url: "/api/uploads",
+  headers: async () => ({
+    Authorization: `Bearer ${await getAccessToken()}`,
+  }),
+});
+```
+
+With async headers, the request starts once the promise resolves. If the file is removed while it's pending, the upload is cancelled instead of starting. If the function throws or rejects, the upload fails with that error. On a different origin, custom headers need CORS set up on the server; see [Authentication](/backend-integration#authentication).
+
+#### `withCredentials`
+
+- **Type:** `boolean`
+- **Optional** (default `false`)
+
+Sends cookies and HTTP authentication with cross-origin uploads. Same-origin requests always include cookies, so you only need this when the upload endpoint is on another origin.
+
+#### `fieldName`
+
+- **Type:** `string`
+- **Optional** (default `"file"`)
+
+The form field the file, or each chunk, is sent under.
+
+#### `formFields`
+
+- **Type:** `Record<string, string> | (context: { item: UploadItem }) => Record<string, string>`
+- **Optional**
+
+Extra form fields sent with every upload request, ahead of the file so streaming parsers like Multer can read them before the file arrives:
+
+```tsx
+const { addFile } = useCourier({
+  url: "/api/uploads",
+  formFields: ({ item }) => ({
+    folderId: currentFolder.id,
+    originalName: item.file.name,
+  }),
+});
+```
+
+Chunk requests also include `uploadId`, `chunkIndex`, and `totalChunks`, so avoid those names.
 
 #### `beforeUpload`
 
@@ -38,10 +96,19 @@ Runs before every upload attempt, including each `retryUpload`. Throw an error t
 
 #### `onUploadSuccess`
 
-- **Type:** `(context: { item: UploadItem }) => void`
+- **Type:** `(context: { item: UploadItem; data: TUploadResponse }) => void`
 - **Optional**
 
-Runs after the upload API returns a successful response.
+Runs after the upload API returns a successful response. `data` is the parsed JSON response (for a chunked upload, the final chunk's response), typed as the hook's response type:
+
+```tsx
+const { addFile } = useCourier<{ url: string }>({
+  url: "/api/uploads",
+  onUploadSuccess: ({ item, data }) => {
+    console.log(`${item.file.name} is at ${data.url}`);
+  },
+});
+```
 
 #### `onUploadError`
 
@@ -177,3 +244,20 @@ The package exports these error classes:
 - `XhrRequestError` for network or request failures
 - `XhrResponseError` for unsuccessful or unusable responses
 - `UploadCancelledError` when an upload is intentionally aborted
+
+`XhrResponseError` has `status` (the HTTP status, or `0` if there was none) and `body` (the raw response text), so you can handle each failure differently:
+
+```tsx
+import { useCourier, XhrResponseError } from "use-courier";
+
+const { addFile } = useCourier({
+  url: "/api/uploads",
+  onUploadError: ({ error }) => {
+    if (error instanceof XhrResponseError && error.status === 401) {
+      redirectToLogin();
+    } else if (error instanceof XhrResponseError && error.status === 413) {
+      showMessage("That file is too large.");
+    }
+  },
+});
+```

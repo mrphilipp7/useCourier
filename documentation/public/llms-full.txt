@@ -71,7 +71,49 @@ export function UploadForm() {
 
 # Recipes
 
-Copy-paste solutions for common upload needs. Each recipe is a complete component built on the [basic usage](/get-started#basic-usage) example, so you can drop it into a project and adapt it.
+Copy-paste solutions for common upload needs. Each recipe is a complete component built on the basic usage example, so you can drop it into a project and adapt it.
+
+## Upload to an authenticated API
+
+Send a token with every request using `headers`. Passing a function means it's called for each request, so a long chunked upload keeps sending a fresh token instead of failing when the first one expires:
+
+```tsx
+import { useCourier, XhrResponseError } from "use-courier";
+import { getAccessToken } from "./auth"; // your auth library's token getter
+
+export function AuthenticatedUpload() {
+  const { files, addFile } = useCourier({
+    url: "https://api.example.com/uploads",
+    headers: async () => ({
+      Authorization: `Bearer ${await getAccessToken()}`,
+    }),
+    onUploadError: ({ error }) => {
+      if (error instanceof XhrResponseError && error.status === 401) {
+        window.location.assign("/login");
+      }
+    },
+  });
+
+  return (
+    <>
+      <input
+        type="file"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          if (file) addFile(file);
+        }}
+      />
+      {files.map((item) => (
+        <p key={item.id}>
+          {item.file.name}: {item.status} ({item.uploadProgress}%)
+        </p>
+      ))}
+    </>
+  );
+}
+```
+
+For a cookie-based session on another origin, use `withCredentials: true` instead of `headers`. Either way, a server on a different origin has to allow it with CORS; see Authentication. This recipe needs version 0.7.0 or later.
 
 ## Validate file size and type
 
@@ -231,7 +273,7 @@ export function ImageUpload() {
 
 ## Retry automatically with backoff
 
-Call `retryUpload` from `onUploadError`, waiting longer after each failure: 1 second, then 2, then 4. Only network and server errors are retried; a cancellation or a `beforeUpload` rejection is left alone:
+Call `retryUpload` from `onUploadError`, waiting longer after each failure: 1 second, then 2, then 4. Only network errors and server errors (`5xx`) are retried; a cancellation, a `beforeUpload` rejection, or a client error like `401` is left alone:
 
 ```tsx
 import { useEffect, useRef } from "react";
@@ -253,7 +295,8 @@ export function AutoRetryUpload() {
     url: "/api/uploads",
     onUploadError: ({ item, error }) => {
       const retryable =
-        error instanceof XhrRequestError || error instanceof XhrResponseError;
+        error instanceof XhrRequestError ||
+        (error instanceof XhrResponseError && error.status >= 500);
       const attempt = attempts.current.get(item.id) ?? 0;
       if (!retryable || attempt >= MAX_RETRIES) return;
 
@@ -290,11 +333,11 @@ export function AutoRetryUpload() {
 }
 ```
 
-`XhrResponseError` covers every non-`2xx` response, including ones retrying won't fix, like `413 Payload Too Large`. For chunked uploads, each chunk is already retried on its own (`fileChunking.maxChunkRetries`) before the upload fails, and `retryUpload` resumes from the failed chunk. This recipe needs version 0.6.0 or later.
+Client errors like `401 Unauthorized` or `413 Payload Too Large` aren't retried, since they'd fail the same way again. For chunked uploads, each chunk is already retried on its own (`fileChunking.maxChunkRetries`) before the upload fails, and `retryUpload` resumes from the failed chunk. This recipe needs version 0.7.0 or later.
 
 ## Disable submit until uploads finish
 
-Use `overall` to keep a form's submit button disabled until every file is done, and collect each server response from the result of `addFile`:
+Use `overall` to keep a form's submit button disabled until every file is done, and collect each server response in `onUploadSuccess`:
 
 ```tsx
 import { useState } from "react";
@@ -303,23 +346,21 @@ import { useCourier } from "use-courier";
 type UploadResponse = { url: string };
 
 export function UploadForm() {
-  const [urls, setUrls] = useState(() => new Map<File, string>());
+  const [urls, setUrls] = useState(() => new Map<string, string>());
   const { files, addFile, overall } = useCourier<UploadResponse>({
     url: "/api/uploads",
+    onUploadSuccess: ({ item, data }) => {
+      setUrls((prev) => new Map(prev).set(item.id, data.url));
+    },
   });
 
   function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
-    Array.from(event.target.files ?? []).forEach(async (file) => {
-      const result = await addFile(file);
-      if (result.success) {
-        setUrls((prev) => new Map(prev).set(file, result.data.url));
-      }
-    });
+    Array.from(event.target.files ?? []).forEach((file) => addFile(file));
   }
 
   function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const attachments = files.flatMap((item) => urls.get(item.file) ?? []);
+    const attachments = files.flatMap((item) => urls.get(item.id) ?? []);
     console.log("Submitting with", attachments);
   }
 
@@ -345,7 +386,7 @@ export function UploadForm() {
 }
 ```
 
-`overall.status` is only `"done"` when every tracked file is done, so the button stays disabled while anything is uploading or has failed. `weightedProgress` weights each file by its size, so one large file doesn't make the bar jump.
+`overall.status` is only `"done"` when every tracked file is done, so the button stays disabled while anything is uploading or has failed. `weightedProgress` weights each file by its size, so one large file doesn't make the bar jump. Reading `data` in `onUploadSuccess` needs version 0.7.0 or later; on older versions, use the result `addFile` resolves with.
 
 ## Warn before leaving mid-upload
 
@@ -419,7 +460,7 @@ const { addFile } = useCourier<UploadResponse>({
 
 ### Options
 
-Every callback receives `{ item }` (plus `error` for `onUploadError`), where `item` is the file's current state. See [How callbacks behave](/upload-lifecycle#how-callbacks-behave) for what `item` contains in each callback and what happens if a callback throws.
+Every callback receives `{ item }` (plus `data` for `onUploadSuccess` and `error` for `onUploadError`), where `item` is the file's current state. See How callbacks behave for what `item` contains in each callback and what happens if a callback throws.
 
 #### `url`
 
@@ -427,6 +468,64 @@ Every callback receives `{ item }` (plus `error` for `onUploadError`), where `it
 - **Required**
 
 The endpoint that receives whole-file uploads.
+
+#### `method`
+
+- **Type:** `"POST" | "PUT" | "PATCH"`
+- **Optional** (default `"POST"`)
+
+The HTTP method for every upload request, including chunk requests.
+
+#### `headers`
+
+- **Type:** `Record<string, string> | (context: { item: UploadItem }) => Record<string, string> | Promise<Record<string, string>>`
+- **Optional**
+
+Headers sent with every upload request, such as an `Authorization` token. Pass a function to compute them per file. It's called once per request, including every chunk and every retry, so it can return a fresh token each time, and it can be `async`:
+
+```tsx
+const { addFile } = useCourier({
+  url: "/api/uploads",
+  headers: async () => ({
+    Authorization: `Bearer ${await getAccessToken()}`,
+  }),
+});
+```
+
+With async headers, the request starts once the promise resolves. If the file is removed while it's pending, the upload is cancelled instead of starting. If the function throws or rejects, the upload fails with that error. On a different origin, custom headers need CORS set up on the server; see Authentication.
+
+#### `withCredentials`
+
+- **Type:** `boolean`
+- **Optional** (default `false`)
+
+Sends cookies and HTTP authentication with cross-origin uploads. Same-origin requests always include cookies, so you only need this when the upload endpoint is on another origin.
+
+#### `fieldName`
+
+- **Type:** `string`
+- **Optional** (default `"file"`)
+
+The form field the file, or each chunk, is sent under.
+
+#### `formFields`
+
+- **Type:** `Record<string, string> | (context: { item: UploadItem }) => Record<string, string>`
+- **Optional**
+
+Extra form fields sent with every upload request, ahead of the file so streaming parsers like Multer can read them before the file arrives:
+
+```tsx
+const { addFile } = useCourier({
+  url: "/api/uploads",
+  formFields: ({ item }) => ({
+    folderId: currentFolder.id,
+    originalName: item.file.name,
+  }),
+});
+```
+
+Chunk requests also include `uploadId`, `chunkIndex`, and `totalChunks`, so avoid those names.
 
 #### `beforeUpload`
 
@@ -437,10 +536,19 @@ Runs before every upload attempt, including each `retryUpload`. Throw an error t
 
 #### `onUploadSuccess`
 
-- **Type:** `(context: { item: UploadItem }) => void`
+- **Type:** `(context: { item: UploadItem; data: TUploadResponse }) => void`
 - **Optional**
 
-Runs after the upload API returns a successful response.
+Runs after the upload API returns a successful response. `data` is the parsed JSON response (for a chunked upload, the final chunk's response), typed as the hook's response type:
+
+```tsx
+const { addFile } = useCourier<{ url: string }>({
+  url: "/api/uploads",
+  onUploadSuccess: ({ item, data }) => {
+    console.log(`${item.file.name} is at ${data.url}`);
+  },
+});
+```
 
 #### `onUploadError`
 
@@ -566,7 +674,7 @@ Aggregate progress and status across every currently tracked file, recomputed wh
 
 Use `averageProgress` for a simple "how many of these files are roughly done" indicator, and `weightedProgress` for an accurate "how much of the total data has actually been sent" indicator — they can disagree by a wide margin when file sizes vary a lot.
 
-An errored file's `uploadProgress` isn't excluded or reset for either calculation: the bytes it already sent are real, and a retry resumes from them (see Upload Lifecycle) rather than losing them, so `status` — not the progress numbers — is what tells you a file needs attention.
+An errored file's `uploadProgress` isn't excluded or reset for either calculation: the bytes it already sent are real, and a retry resumes from them rather than losing them, so `status` — not the progress numbers — is what tells you a file needs attention.
 
 ## Error classes
 
@@ -576,6 +684,23 @@ The package exports these error classes:
 - `XhrRequestError` for network or request failures
 - `XhrResponseError` for unsuccessful or unusable responses
 - `UploadCancelledError` when an upload is intentionally aborted
+
+`XhrResponseError` has `status` (the HTTP status, or `0` if there was none) and `body` (the raw response text), so you can handle each failure differently:
+
+```tsx
+import { useCourier, XhrResponseError } from "use-courier";
+
+const { addFile } = useCourier({
+  url: "/api/uploads",
+  onUploadError: ({ error }) => {
+    if (error instanceof XhrResponseError && error.status === 401) {
+      redirectToLogin();
+    } else if (error instanceof XhrResponseError && error.status === 413) {
+      showMessage("That file is too large.");
+    }
+  },
+});
+```
 
 ---
 
@@ -587,7 +712,7 @@ This page documents exactly what `status` transitions happen, and in what order,
 
 ## See it in action
 
-This is the [basic usage](/get-started#basic-usage) example with every lifecycle callback added. Each callback shows a toast (using [Sonner](https://ui.shadcn.com/docs/components/radix/sonner)) saying when it ran:
+This is the basic usage example with every lifecycle callback added. Each callback shows a toast (using [Sonner](https://ui.shadcn.com/docs/components/radix/sonner)) saying when it ran:
 
 ```tsx
 import { useCourier } from "use-courier";
@@ -662,7 +787,7 @@ On a successful upload the callbacks fire as `beforeUpload`, then `onUploadSucce
 
 ## How callbacks behave
 
-- **`item` is the file as it is when the callback runs**, matching its entry in `files` at that moment. In `beforeUpload` it's `uploading` at 0%; in `onUploadSuccess` it's `done` at 100%; in `onUploadError` it's `error`, with `uploadProgress` frozen where the upload stopped. For a file `removeFile` cancelled, it's the file's last known state marked `error`, since the file is no longer in `files`.
+- **`item` is the file as it is when the callback runs**, matching its entry in `files` at that moment. `onUploadSuccess` also receives `data`, the server's parsed response. In `beforeUpload` it's `uploading` at 0%; in `onUploadSuccess` it's `done` at 100%; in `onUploadError` it's `error`, with `uploadProgress` frozen where the upload stopped. For a file `removeFile` cancelled, it's the file's last known state marked `error`, since the file is no longer in `files`.
 - **The latest version of each callback is the one that runs.** An upload can outlast the render it started in, so the hook always calls the callbacks, and uses `url` and `fileChunking`, from the most recent render. Callbacks can read current props and state without stale values.
 - **A callback that throws can't break an upload.** If `onUploadSuccess`, `onUploadError`, `onUploadFinish`, or `onRemoveFile` throws, the error is reported with the browser's [`reportError`](https://developer.mozilla.org/en-US/docs/Web/API/Window/reportError) (falling back to `console.error`), which logs it and reaches error-tracking tools. The file's `status` and the result `addFile`/`retryUpload` resolve with are unaffected. `beforeUpload` and `onUploadRetry` are different: throwing from them is how you reject a file.
 
@@ -800,11 +925,13 @@ const { files, addFile } = useCourier({
 });
 ```
 
-The request contains one file field:
+The request contains the file, plus any extra fields you add with `formFields` (sent before the file):
 
 | Field | Description |
 | --- | --- |
-| `file` | The selected file. |
+| `file` | The selected file. Use `fieldName` to change the name. |
+
+Requests use `POST` by default; set `method` to use `PUT` or `PATCH`.
 
 Your endpoint should:
 
@@ -833,7 +960,28 @@ Any non-`2xx` response, or a `2xx` response whose body is not valid JSON (includ
 }
 ```
 
-Use a `4xx` status for client errors, such as invalid files, and a `5xx` status for server-side failures.
+Use a `4xx` status for client errors, such as invalid files, and a `5xx` status for server-side failures. The error is an `XhrResponseError` with the response's `status` and raw `body`, so the client can tell them apart.
+
+## Authentication
+
+Send a token with `headers`, or cookies with `withCredentials`. Both apply to every request, including each chunk:
+
+```tsx
+const { addFile } = useCourier({
+  url: "https://api.example.com/uploads",
+  headers: async () => ({
+    Authorization: `Bearer ${await getAccessToken()}`,
+  }),
+});
+```
+
+When the upload endpoint is on a different origin than your page, the browser enforces CORS:
+
+- A custom header such as `Authorization` makes the browser send a preflight `OPTIONS` request first. Your server must answer it and list the header in `Access-Control-Allow-Headers`.
+- With `withCredentials: true`, the server must send `Access-Control-Allow-Credentials: true` and name your page's exact origin in `Access-Control-Allow-Origin`; `*` isn't allowed with credentials.
+- With `method: "PUT"` or `"PATCH"`, list the method in `Access-Control-Allow-Methods`.
+
+A rejected token comes back as an `XhrResponseError` whose `status` is `401` or `403`, which you can check in `onUploadError`.
 
 ## Chunked uploads
 
@@ -879,7 +1027,7 @@ The client does not reassemble the file. The server should also clean up incompl
 
 - Configure multipart parsing for both standard and chunked endpoints.
 - Enforce file-size and request-size limits.
-- Configure CORS when the frontend and backend use different origins.
+- Configure CORS when the frontend and backend use different origins (see Authentication).
 - Validate file types, authentication, and authorization server-side.
 - Use an upload ID and chunk index to prevent chunks from being mixed between uploads.
 - Make chunk writes idempotent when possible so retries do not corrupt the completed file.
