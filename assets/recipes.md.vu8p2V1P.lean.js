@@ -1,0 +1,1 @@
+import{H as e,V as t,et as n,j as r}from"./chunks/framework.B_YhZOsv.js";var i=JSON.parse(`{"title":"Recipes","description":"","frontmatter":{},"headers":[],"relativePath":"recipes.md","filePath":"recipes.md"}`),a={name:`recipes.md`};function o(r,i,a,o,s,c){return n(),t(`div`,null,[...i[0]||=[e("",28)]])}var s=r(a,[[`render`,o]]);export{i as __pageData,s as default};
