@@ -4,21 +4,23 @@ This page documents exactly what `status` transitions happen, and in what order,
 
 ## See it in action
 
-This is the [basic usage](/get-started#basic-usage) example with every lifecycle callback added. Each callback shows a toast (using [Sonner](https://ui.shadcn.com/docs/components/radix/sonner)) saying when it ran:
+This is the [basic usage](/get-started#basic-usage) example with every lifecycle callback added. Each callback shows a toast (using [Sonner](https://ui.shadcn.com/docs/components/radix/sonner)) saying when it ran. `onUploadSuccess` also receives `data`, your server's parsed response, typed here as `{ url: string }` by the generic on `useCourier`:
 
 ```tsx
 import { useCourier } from "use-courier";
 import { toast } from "sonner";
 
 export function UploadForm() {
-  const { files, addFile, retryUpload, removeFile } = useCourier({
+  const { files, addFile, retryUpload, removeFile } = useCourier<{
+    url: string;
+  }>({
     url: "/api/uploads",
     beforeUpload: ({ item }) => {
       toast("I ran before the upload", { description: item.file.name });
     },
-    onUploadSuccess: ({ item }) => {
+    onUploadSuccess: ({ item, data }) => {
       toast.success("I ran after a successful upload", {
-        description: item.file.name,
+        description: `${item.file.name} is at ${data.url}`,
       });
     },
     onUploadError: ({ item, error }) => {
@@ -83,7 +85,7 @@ Upload a file and watch the toasts. A successful upload shows `beforeUpload`, th
 
 ## How callbacks behave
 
-- **`item` is the file as it is when the callback runs**, matching its entry in `files` at that moment. In `beforeUpload` it's `uploading` at 0%; in `onUploadSuccess` it's `done` at 100%; in `onUploadError` it's `error`, with `uploadProgress` frozen where the upload stopped. For a file `removeFile` cancelled, it's the file's last known state marked `error`, since the file is no longer in `files`.
+- **`item` is the file as it is when the callback runs**, matching its entry in `files` at that moment. `onUploadSuccess` also receives `data`, the server's parsed response. In `beforeUpload` it's `uploading` at 0%; in `onUploadSuccess` it's `done` at 100%; in `onUploadError` it's `error`, with `uploadProgress` frozen where the upload stopped. For a file `removeFile` cancelled, it's the file's last known state marked `error`, since the file is no longer in `files`.
 - **The latest version of each callback is the one that runs.** An upload can outlast the render it started in, so the hook always calls the callbacks, and uses `url` and `fileChunking`, from the most recent render. Callbacks can read current props and state without stale values.
 - **A callback that throws can't break an upload.** If `onUploadSuccess`, `onUploadError`, `onUploadFinish`, or `onRemoveFile` throws, the error is reported with the browser's [`reportError`](https://developer.mozilla.org/en-US/docs/Web/API/Window/reportError) (falling back to `console.error`), which logs it and reaches error-tracking tools. The file's `status` and the result `addFile`/`retryUpload` resolve with are unaffected. `beforeUpload` and `onUploadRetry` are different: throwing from them is how you reject a file.
 

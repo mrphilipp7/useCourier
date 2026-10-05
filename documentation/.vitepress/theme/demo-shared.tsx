@@ -30,6 +30,8 @@ function createDemoXHR(shouldFail: () => boolean) {
 
     open() {}
 
+    setRequestHeader() {}
+
     send(formData?: FormData) {
       const file = formData?.get("file");
       const fileName = file instanceof File ? file.name : "file";
@@ -53,7 +55,11 @@ function createDemoXHR(shouldFail: () => boolean) {
               this.dispatchEvent(new Event("error"));
             } else {
               this.status = 200;
-              this.responseText = JSON.stringify({ ok: true, fileName });
+              this.responseText = JSON.stringify({
+                ok: true,
+                fileName,
+                url: `https://files.example.com/${encodeURIComponent(fileName)}`,
+              });
               this.dispatchEvent(new Event("load"));
             }
           }, 350);

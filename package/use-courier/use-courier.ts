@@ -25,7 +25,9 @@ import { useLatest } from "./use-latest.js";
  * overall aggregate (overall.ts), id generation (ids.ts), and safe callback
  * invocation (callbacks.ts).
  */
-export function useCourier<TUploadResponse>(props: UseCourierProps) {
+export function useCourier<TUploadResponse>(
+  props: UseCourierProps<TUploadResponse>,
+) {
   /**
    * #29: url, fileChunking, and every callback are read through this, never
    * from props directly. An upload (or a retryUpload/removeFile reference
@@ -45,11 +47,16 @@ export function useCourier<TUploadResponse>(props: UseCourierProps) {
   const filesRef = React.useRef<UploadItem[]>([]);
   const inFlightRef = React.useRef<InFlightRequests>(new Map());
   const resumeStateRef = React.useRef<ChunkResumeState>(new Map());
+  /** #20: lets an upload waiting on async headers notice an unmount. */
+  const unmountedRef = React.useRef(false);
 
   // Abort any uploads still in flight when the consumer unmounts.
   React.useEffect(() => {
+    // Reset on (re)mount: Strict Mode runs this cleanup once in development.
+    unmountedRef.current = false;
     const inFlight = inFlightRef.current;
     return () => {
+      unmountedRef.current = true;
       inFlight.forEach((xhr) => xhr.abort());
     };
   }, []);
@@ -119,15 +126,29 @@ export function useCourier<TUploadResponse>(props: UseCourierProps) {
       });
     };
 
-    const { url, fileChunking } = optionsRef.current;
+    const {
+      url,
+      fileChunking,
+      method,
+      headers,
+      withCredentials,
+      fieldName,
+      formFields,
+    } = optionsRef.current;
 
     return (
       uploadFile<TUploadResponse>({
         item,
         url,
         fileChunking,
+        request: { method, headers, withCredentials, fieldName, formFields },
         inFlight: inFlightRef.current,
         resumeState: resumeStateRef.current,
+        // #20: there's nothing to abort while async headers are pending, so
+        // the upload checks this once they resolve.
+        isCancelled: () =>
+          unmountedRef.current ||
+          !filesRef.current.some((f) => f.id === item.id),
         onProgress,
       })
         // #24: settle the upload's outcome first, as its own step. Callbacks
@@ -138,9 +159,13 @@ export function useCourier<TUploadResponse>(props: UseCourierProps) {
             updateFile(item.id, { status: "done", uploadProgress: 100 });
             return { success: true, data };
           },
-          (error: Error): UploadResult<TUploadResponse> => {
+          (error: unknown): UploadResult<TUploadResponse> => {
             updateFile(item.id, { status: "error" });
-            return { success: false, error };
+            // A consumer's headers/formFields function can throw anything.
+            return {
+              success: false,
+              error: error instanceof Error ? error : new Error(String(error)),
+            };
           },
         )
         .then((result) => {
@@ -153,7 +178,10 @@ export function useCourier<TUploadResponse>(props: UseCourierProps) {
           const options = optionsRef.current;
 
           if (result.success) {
-            notify(options.onUploadSuccess, { item: settled });
+            notify(options.onUploadSuccess, {
+              item: settled,
+              data: result.data,
+            });
           } else {
             notify(options.onUploadError, {
               item: settled,

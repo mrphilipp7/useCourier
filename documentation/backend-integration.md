@@ -12,11 +12,13 @@ const { files, addFile } = useCourier({
 });
 ```
 
-The request contains one file field:
+The request contains the file, plus any extra fields you add with `formFields` (sent before the file):
 
-| Field  | Description        |
-| ------ | ------------------ |
-| `file` | The selected file. |
+| Field  | Description                                            |
+| ------ | ------------------------------------------------------ |
+| `file` | The selected file. Use `fieldName` to change the name. |
+
+Requests use `POST` by default; set `method` to use `PUT` or `PATCH`.
 
 Your endpoint should:
 
@@ -45,7 +47,28 @@ Any non-`2xx` response, or a `2xx` response whose body is not valid JSON (includ
 }
 ```
 
-Use a `4xx` status for client errors, such as invalid files, and a `5xx` status for server-side failures.
+Use a `4xx` status for client errors, such as invalid files, and a `5xx` status for server-side failures. The error is an `XhrResponseError` with the response's `status` and raw `body`, so the client can tell them apart.
+
+## Authentication
+
+Send a token with `headers`, or cookies with `withCredentials`. Both apply to every request, including each chunk:
+
+```tsx
+const { addFile } = useCourier({
+  url: "https://api.example.com/uploads",
+  headers: async () => ({
+    Authorization: `Bearer ${await getAccessToken()}`,
+  }),
+});
+```
+
+When the upload endpoint is on a different origin than your page, the browser enforces CORS:
+
+- A custom header such as `Authorization` makes the browser send a preflight `OPTIONS` request first. Your server must answer it and list the header in `Access-Control-Allow-Headers`.
+- With `withCredentials: true`, the server must send `Access-Control-Allow-Credentials: true` and name your page's exact origin in `Access-Control-Allow-Origin`; `*` isn't allowed with credentials.
+- With `method: "PUT"` or `"PATCH"`, list the method in `Access-Control-Allow-Methods`.
+
+A rejected token comes back as an `XhrResponseError` whose `status` is `401` or `403`, which you can check in `onUploadError`.
 
 ## Chunked uploads
 
@@ -91,7 +114,7 @@ The client does not reassemble the file. The server should also clean up incompl
 
 - Configure multipart parsing for both standard and chunked endpoints.
 - Enforce file-size and request-size limits.
-- Configure CORS when the frontend and backend use different origins.
+- Configure CORS when the frontend and backend use different origins (see [Authentication](#authentication)).
 - Validate file types, authentication, and authorization server-side.
 - Use an upload ID and chunk index to prevent chunks from being mixed between uploads.
 - Make chunk writes idempotent when possible so retries do not corrupt the completed file.

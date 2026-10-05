@@ -2,6 +2,48 @@
 
 Copy-paste solutions for common upload needs. Each recipe is a complete component built on the [basic usage](/get-started#basic-usage) example, so you can drop it into a project and adapt it.
 
+## Upload to an authenticated API
+
+Send a token with every request using `headers`. Passing a function means it's called for each request, so a long chunked upload keeps sending a fresh token instead of failing when the first one expires:
+
+```tsx
+import { useCourier, XhrResponseError } from "use-courier";
+import { getAccessToken } from "./auth"; // your auth library's token getter
+
+export function AuthenticatedUpload() {
+  const { files, addFile } = useCourier({
+    url: "https://api.example.com/uploads",
+    headers: async () => ({
+      Authorization: `Bearer ${await getAccessToken()}`,
+    }),
+    onUploadError: ({ error }) => {
+      if (error instanceof XhrResponseError && error.status === 401) {
+        window.location.assign("/login");
+      }
+    },
+  });
+
+  return (
+    <>
+      <input
+        type="file"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          if (file) addFile(file);
+        }}
+      />
+      {files.map((item) => (
+        <p key={item.id}>
+          {item.file.name}: {item.status} ({item.uploadProgress}%)
+        </p>
+      ))}
+    </>
+  );
+}
+```
+
+For a cookie-based session on another origin, use `withCredentials: true` instead of `headers`. Either way, a server on a different origin has to allow it with CORS; see [Authentication](/backend-integration#authentication). This recipe needs version 0.7.0 or later.
+
 ## Validate file size and type
 
 Throw from `beforeUpload` to reject a file before any request is made. The rejection comes back as the result of `addFile`, so you can show the reason:
@@ -160,7 +202,7 @@ export function ImageUpload() {
 
 ## Retry automatically with backoff
 
-Call `retryUpload` from `onUploadError`, waiting longer after each failure: 1 second, then 2, then 4. Only network and server errors are retried; a cancellation or a `beforeUpload` rejection is left alone:
+Call `retryUpload` from `onUploadError`, waiting longer after each failure: 1 second, then 2, then 4. Only network errors and server errors (`5xx`) are retried; a cancellation, a `beforeUpload` rejection, or a client error like `401` is left alone:
 
 ```tsx
 import { useEffect, useRef } from "react";
@@ -182,7 +224,8 @@ export function AutoRetryUpload() {
     url: "/api/uploads",
     onUploadError: ({ item, error }) => {
       const retryable =
-        error instanceof XhrRequestError || error instanceof XhrResponseError;
+        error instanceof XhrRequestError ||
+        (error instanceof XhrResponseError && error.status >= 500);
       const attempt = attempts.current.get(item.id) ?? 0;
       if (!retryable || attempt >= MAX_RETRIES) return;
 
@@ -219,11 +262,11 @@ export function AutoRetryUpload() {
 }
 ```
 
-`XhrResponseError` covers every non-`2xx` response, including ones retrying won't fix, like `413 Payload Too Large`. For chunked uploads, each chunk is already retried on its own (`fileChunking.maxChunkRetries`) before the upload fails, and `retryUpload` resumes from the failed chunk. This recipe needs version 0.6.0 or later.
+Client errors like `401 Unauthorized` or `413 Payload Too Large` aren't retried, since they'd fail the same way again. For chunked uploads, each chunk is already retried on its own (`fileChunking.maxChunkRetries`) before the upload fails, and `retryUpload` resumes from the failed chunk. This recipe needs version 0.7.0 or later.
 
 ## Disable submit until uploads finish
 
-Use `overall` to keep a form's submit button disabled until every file is done, and collect each server response from the result of `addFile`:
+Use `overall` to keep a form's submit button disabled until every file is done, and collect each server response in `onUploadSuccess`:
 
 ```tsx
 import { useState } from "react";
@@ -232,23 +275,21 @@ import { useCourier } from "use-courier";
 type UploadResponse = { url: string };
 
 export function UploadForm() {
-  const [urls, setUrls] = useState(() => new Map<File, string>());
+  const [urls, setUrls] = useState(() => new Map<string, string>());
   const { files, addFile, overall } = useCourier<UploadResponse>({
     url: "/api/uploads",
+    onUploadSuccess: ({ item, data }) => {
+      setUrls((prev) => new Map(prev).set(item.id, data.url));
+    },
   });
 
   function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
-    Array.from(event.target.files ?? []).forEach(async (file) => {
-      const result = await addFile(file);
-      if (result.success) {
-        setUrls((prev) => new Map(prev).set(file, result.data.url));
-      }
-    });
+    Array.from(event.target.files ?? []).forEach((file) => addFile(file));
   }
 
   function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const attachments = files.flatMap((item) => urls.get(item.file) ?? []);
+    const attachments = files.flatMap((item) => urls.get(item.id) ?? []);
     console.log("Submitting with", attachments);
   }
 
@@ -274,7 +315,7 @@ export function UploadForm() {
 }
 ```
 
-`overall.status` is only `"done"` when every tracked file is done, so the button stays disabled while anything is uploading or has failed. `weightedProgress` weights each file by its size, so one large file doesn't make the bar jump.
+`overall.status` is only `"done"` when every tracked file is done, so the button stays disabled while anything is uploading or has failed. `weightedProgress` weights each file by its size, so one large file doesn't make the bar jump. Reading `data` in `onUploadSuccess` needs version 0.7.0 or later; on older versions, use the result `addFile` resolves with.
 
 ## Warn before leaving mid-upload
 

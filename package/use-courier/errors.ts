@@ -6,11 +6,25 @@ export class XhrRequestError extends Error {
   }
 }
 
-/** Thrown when an XHR receives an unusable response. */
+/**
+ * Thrown when an XHR receives an unusable response: a non-2xx status, or a
+ * 2xx whose body isn't valid JSON. status and body let consumers tell, say,
+ * a 401 or 413 apart from a 500.
+ */
 export class XhrResponseError extends Error {
-  constructor(message = "An error occurred while receiving an XHR response") {
+  /** The response's HTTP status, or 0 if there wasn't one. */
+  readonly status: number;
+  /** The raw response body text ("" if there wasn't one). */
+  readonly body: string;
+
+  constructor(
+    message = "An error occurred while receiving an XHR response",
+    { status = 0, body = "" }: { status?: number; body?: string } = {},
+  ) {
     super(message);
     this.name = "XhrResponseError";
+    this.status = status;
+    this.body = body;
   }
 }
 
