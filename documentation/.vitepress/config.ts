@@ -35,6 +35,7 @@ export default defineConfig({
         items: [
           { text: "Express", link: "/examples/express" },
           { text: "Next.js", link: "/examples/nextjs" },
+          { text: "Nuxt", link: "/examples/nuxt" },
           { text: "TanStack Start", link: "/examples/tanstack-start" },
           { text: "Hono", link: "/examples/hono" },
         ],

@@ -20,6 +20,7 @@ Entry points: `import { useCourier } from "use-courier"` for React (identical to
 
 - [Express](https://mrphilipp7.github.io/useCourier/examples/express): Express + Multer server for standard and chunked uploads.
 - [Next.js](https://mrphilipp7.github.io/useCourier/examples/nextjs): App Router Route Handlers for standard and chunked uploads.
+- [Nuxt](https://mrphilipp7.github.io/useCourier/examples/nuxt): Nuxt server routes (h3 `readMultipartFormData`) for standard and chunked uploads, with the Vue composable on the client.
 - [TanStack Start](https://mrphilipp7.github.io/useCourier/examples/tanstack-start): file-based server routes for standard and chunked uploads.
 - [Hono](https://mrphilipp7.github.io/useCourier/examples/hono): Hono routes for standard and chunked uploads.
 - [Shadcn Attachments](https://mrphilipp7.github.io/useCourier/integrations/shadcn-attachments): wiring `useCourier` into a Shadcn attachment UI without depending on Shadcn.
