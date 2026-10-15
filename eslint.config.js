@@ -18,15 +18,23 @@ export default tseslint.config(
         ...globals.node,
       },
     },
+    rules: {
+      "@typescript-eslint/no-unused-expressions": [
+        "error",
+        { allowShortCircuit: true },
+      ],
+    },
+  },
+  // React's hook rules only make sense for React code: the core is
+  // framework-agnostic, and Vue composables follow different rules.
+  {
+    files: ["package/use-courier/react/**/*.ts", "tests/**/*.{ts,tsx}"],
+    ignores: ["tests/vue*.test.ts"],
     plugins: {
       "react-hooks": reactHooks,
     },
     rules: {
       ...reactHooks.configs.recommended.rules,
-      "@typescript-eslint/no-unused-expressions": [
-        "error",
-        { allowShortCircuit: true },
-      ],
     },
   },
   eslintConfigPrettier,

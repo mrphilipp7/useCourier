@@ -1,7 +1,7 @@
 import React from "react";
-import { createCourier } from "./create-courier.js";
-import { getOverallUploadState } from "./overall.js";
-import type { OverallUploadState, UseCourierProps } from "./types.js";
+import { createCourier } from "../create-courier.js";
+import { getOverallUploadState } from "../overall.js";
+import type { OverallUploadState, UseCourierProps } from "../types.js";
 import { useLatest } from "./use-latest.js";
 
 /**
