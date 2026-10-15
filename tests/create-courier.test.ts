@@ -6,7 +6,10 @@ import {
   UploadCancelledError,
   useCourier,
 } from "../package/use-courier/index.js";
-import type { UseCourierProps } from "../package/use-courier/index.js";
+import type {
+  CourierOptions,
+  UseCourierProps,
+} from "../package/use-courier/index.js";
 import { MockXMLHttpRequest } from "./mock-xhr.js";
 
 function makeFile(sizeInBytes = 4, name = "test.txt") {
@@ -152,7 +155,7 @@ describe("useCourier under React Strict Mode", () => {
 
   test("async headers still resolve into a request after the remount", async () => {
     let resolveHeaders!: (headers: Record<string, string>) => void;
-    const options: UseCourierProps = {
+    const options: CourierOptions = {
       url: "/api/uploads",
       headers: () =>
         new Promise((resolve) => {
@@ -193,5 +196,17 @@ describe("useCourier under React Strict Mode", () => {
     expect((outcome as { error: Error }).error).toBeInstanceOf(
       UploadCancelledError,
     );
+  });
+});
+
+describe("CourierOptions rename", () => {
+  test("the deprecated UseCourierProps alias still type-checks", () => {
+    // Compile-time check: both names describe the same options.
+    const options: UseCourierProps<{ url: string }> = {
+      url: "/api/uploads",
+      onUploadSuccess: ({ data }) => void data.url,
+    };
+    const renamed: CourierOptions<{ url: string }> = options;
+    expect(renamed).toBe(options);
   });
 });

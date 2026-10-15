@@ -47,7 +47,8 @@ export type UploadHeaders = Record<string, string>;
 /** Extra multipart form fields sent alongside the file. */
 export type UploadFormFields = Record<string, string>;
 
-export type UseCourierProps<TUploadResponse = unknown> = {
+/** Options for useCourier (React and Vue). */
+export type CourierOptions<TUploadResponse = unknown> = {
   url: string;
   /** HTTP method for every upload request, including chunks. Defaults to "POST". */
   method?: "POST" | "PUT" | "PATCH";
@@ -86,3 +87,10 @@ export type UseCourierProps<TUploadResponse = unknown> = {
   /** Works for users setting up file chunking when splitting up large files into smaller requests */
   fileChunking?: FileChunking;
 };
+
+/**
+ * @deprecated Renamed to CourierOptions, since the same options are used by
+ * the React hook and the Vue composable. This alias will keep working.
+ */
+export type UseCourierProps<TUploadResponse = unknown> =
+  CourierOptions<TUploadResponse>;
