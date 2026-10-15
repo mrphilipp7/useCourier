@@ -2,7 +2,14 @@
 
 ## `useCourier`
 
-Creates an upload manager for files selected in a React component.
+Creates an upload manager for files selected in a component. Import it for your framework:
+
+```ts
+import { useCourier } from "use-courier"; // React (same as "use-courier/react")
+import { useCourier } from "use-courier/vue"; // Vue 3.3+
+```
+
+Both take the same options and return the same functions. In Vue, `files` and `overall` are refs, and the options can be a ref or a getter; see [Vue](/vue). Most examples below are just options, which look the same in both; where the code differs, it's shown in React and Vue tabs.
 
 ```tsx
 const { files, addFile, retryUpload, removeFile } = useCourier({
@@ -19,6 +26,8 @@ const { addFile } = useCourier<UploadResponse>({
 ```
 
 ### Options
+
+The options object's type is `CourierOptions`, exported from both `use-courier` and `use-courier/vue`. Its old name, `UseCourierProps`, still works.
 
 Every callback receives `{ item }` (plus `data` for `onUploadSuccess` and `error` for `onUploadError`), where `item` is the file's current state. See [How callbacks behave](/upload-lifecycle#how-callbacks-behave) for what `item` contains in each callback and what happens if a callback throws.
 
@@ -99,7 +108,7 @@ Runs before every upload attempt, including each `retryUpload`. Throw an error t
 - **Type:** `(context: { item: UploadItem; data: TUploadResponse }) => void`
 - **Optional**
 
-Runs after the upload API returns a successful response. `data` is the parsed JSON response (for a chunked upload, the final chunk's response), typed as the hook's response type:
+Runs after the upload API returns a successful response. `data` is the parsed JSON response (for a chunked upload, the final chunk's response), typed as `useCourier`'s response type:
 
 ```tsx
 const { addFile } = useCourier<{ url: string }>({
@@ -168,9 +177,9 @@ const { addFile } = useCourier({
 
 ### `files`
 
-- **Type:** `UploadItem[]`
+- **Type:** `UploadItem[]` (in Vue, a ref of `UploadItem[]`)
 
-The current files tracked by the hook. Each item includes:
+The current files tracked by `useCourier`. Each item includes:
 
 | Property         | Type                                                         | Description                             |
 | ---------------- | ------------------------------------------------------------ | --------------------------------------- |
@@ -179,7 +188,7 @@ The current files tracked by the hook. Each item includes:
 | `status`         | `"idle" \| "uploading" \| "processing" \| "error" \| "done"` | Current upload state.                   |
 | `uploadProgress` | `number`                                                     | Upload progress from `0` to `100`.      |
 
-`processing` means all bytes have been sent and the hook is waiting for the server response.
+`processing` means all bytes have been sent and `useCourier` is waiting for the server response.
 
 ### `addFile(file)`
 
@@ -215,7 +224,7 @@ Removes a tracked file by ID. If its upload is still in progress, the request is
 
 ### `overall`
 
-- **Type:** `OverallUploadState`
+- **Type:** `OverallUploadState` (in Vue, a computed ref of it)
 
 Aggregate progress and status across every currently tracked file, recomputed whenever `files` changes:
 
@@ -247,7 +256,9 @@ The package exports these error classes:
 
 `XhrResponseError` has `status` (the HTTP status, or `0` if there was none) and `body` (the raw response text), so you can handle each failure differently:
 
-```tsx
+::: code-group
+
+```tsx [React]
 import { useCourier, XhrResponseError } from "use-courier";
 
 const { addFile } = useCourier({
@@ -261,3 +272,20 @@ const { addFile } = useCourier({
   },
 });
 ```
+
+```ts [Vue]
+import { useCourier, XhrResponseError } from "use-courier/vue";
+
+const { addFile } = useCourier({
+  url: "/api/uploads",
+  onUploadError: ({ error }) => {
+    if (error instanceof XhrResponseError && error.status === 401) {
+      redirectToLogin();
+    } else if (error instanceof XhrResponseError && error.status === 413) {
+      showMessage("That file is too large.");
+    }
+  },
+});
+```
+
+:::

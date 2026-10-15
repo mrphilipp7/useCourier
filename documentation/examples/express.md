@@ -17,13 +17,25 @@ Start with a standard upload endpoint. It accepts one or more files under the `f
 
 ### Client setup
 
-```tsx
+::: code-group
+
+```tsx [React]
 import { useCourier } from "use-courier";
 
 const { addFile } = useCourier({
   url: "/upload",
 });
 ```
+
+```ts [Vue]
+import { useCourier } from "use-courier/vue";
+
+const { addFile } = useCourier({
+  url: "/upload",
+});
+```
+
+:::
 
 ### Server
 

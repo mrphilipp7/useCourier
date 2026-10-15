@@ -1,7 +1,7 @@
 import React from "react";
-import { createCourier } from "./create-courier.js";
-import { getOverallUploadState } from "./overall.js";
-import type { OverallUploadState, UseCourierProps } from "./types.js";
+import { createCourier } from "../create-courier.js";
+import { getOverallUploadState } from "../overall.js";
+import type { OverallUploadState, CourierOptions } from "../types.js";
 import { useLatest } from "./use-latest.js";
 
 /**
@@ -15,7 +15,7 @@ import { useLatest } from "./use-latest.js";
  * cancelling uploads on unmount.
  */
 export function useCourier<TUploadResponse>(
-  props: UseCourierProps<TUploadResponse>,
+  props: CourierOptions<TUploadResponse>,
 ) {
   /**
    * #29: the courier reads every option and callback through this, never

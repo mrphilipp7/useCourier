@@ -14,7 +14,7 @@ const { addFile } = useCourier({
 });
 ```
 
-The hook sends each file using the `file` field in a `multipart/form-data` request.
+`useCourier` sends each file using the `file` field in a `multipart/form-data` request.
 
 ## Server route
 

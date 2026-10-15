@@ -1,6 +1,6 @@
 # Shadcn Attachments
 
-`useCourier` is headless, so it can provide upload behavior for a Shadcn attachment interface without taking a dependency on Shadcn or dictating how attachments look.
+`useCourier` is headless, so it can provide upload behavior for a Shadcn attachment interface without taking a dependency on Shadcn or dictating how attachments look. It works with [Shadcn](https://ui.shadcn.com/docs/components/base/attachment) in React and with [shadcn-vue](https://www.shadcn-vue.com/docs/components/attachment) in Vue, whose `Attachment` components share the same parts and the same `state` values as `item.status`.
 
 This integration separates responsibilities:
 
@@ -62,9 +62,11 @@ For an error state, show a retry action using the file's tracked ID. For an acti
 
 ## Complete example
 
-The following component connects `useCourier` to Shadcn's attachment components. The attachment components and `formatFileSize` helper belong to the consuming application.
+The following component connects `useCourier` to Shadcn's attachment components (shadcn-vue's, in the Vue tab). The attachment components and `formatFileSize` helper belong to the consuming application.
 
-```tsx
+::: code-group
+
+```tsx [React]
 import React from "react";
 import {
   Attachment,
@@ -160,6 +162,99 @@ export function FileUpload() {
   );
 }
 ```
+
+```vue [Vue]
+<script setup lang="ts">
+import { ref } from "vue";
+import {
+  Attachment,
+  AttachmentAction,
+  AttachmentActions,
+  AttachmentContent,
+  AttachmentDescription,
+  AttachmentGroup,
+  AttachmentMedia,
+  AttachmentTitle,
+} from "@/components/ui/attachment";
+import { Spinner } from "@/components/ui/spinner";
+import { FileIcon, RefreshCwIcon, XIcon } from "@lucide/vue";
+import { useCourier } from "use-courier/vue";
+import { formatFileSize } from "@/lib/utils";
+
+const fileInput = ref<HTMLInputElement | null>(null);
+const { addFile, files, removeFile, retryUpload } = useCourier({
+  url: "http://localhost:3000/upload",
+  fileChunking: {
+    route: "http://localhost:3000/upload/chunk",
+    threshold: 100 * 1024 * 1024,
+    chunkSize: 10 * 1024 * 1024,
+  },
+  onUploadError({ error }) {
+    console.error(error.message);
+  },
+});
+
+function handleFileChange(event: Event) {
+  const input = event.target as HTMLInputElement;
+  Array.from(input.files ?? []).forEach((file) => void addFile(file));
+}
+
+function handleRemove(id: string) {
+  removeFile(id);
+  if (fileInput.value) fileInput.value.value = "";
+}
+</script>
+
+<template>
+  <main>
+    <p>File Upload</p>
+    <input ref="fileInput" type="file" multiple @change="handleFileChange" />
+
+    <AttachmentGroup class="flex flex-col gap-4">
+      <Attachment
+        v-for="item in files"
+        :key="item.id"
+        :state="item.status"
+        class="w-full max-w-xs"
+      >
+        <AttachmentMedia>
+          <Spinner
+            v-if="item.status === 'uploading' || item.status === 'processing'"
+          />
+          <FileIcon v-else />
+        </AttachmentMedia>
+        <AttachmentContent>
+          <AttachmentTitle>{{ item.file.name }}</AttachmentTitle>
+          <AttachmentDescription>
+            {{
+              item.status === "uploading"
+                ? `Uploading - ${item.uploadProgress}%`
+                : `${item.file.type} - ${formatFileSize(item.file.size)}`
+            }}
+          </AttachmentDescription>
+        </AttachmentContent>
+        <AttachmentActions>
+          <AttachmentAction
+            v-if="item.status === 'error'"
+            aria-label="Retry upload"
+            @click="retryUpload(item.id)"
+          >
+            <RefreshCwIcon />
+          </AttachmentAction>
+          <AttachmentAction
+            :aria-label="`Remove ${item.file.name}`"
+            @click="handleRemove(item.id)"
+          >
+            <XIcon />
+          </AttachmentAction>
+        </AttachmentActions>
+      </Attachment>
+    </AttachmentGroup>
+  </main>
+</template>
+```
+
+:::
 
 ## Keep the integration optional
 

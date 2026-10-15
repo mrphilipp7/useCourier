@@ -18,6 +18,7 @@ export default defineConfig({
         items: [
           { text: "Getting Started", link: "/get-started" },
           { text: "Recipes", link: "/recipes" },
+          { text: "Vue", link: "/vue" },
         ],
       },
       {
@@ -34,6 +35,7 @@ export default defineConfig({
         items: [
           { text: "Express", link: "/examples/express" },
           { text: "Next.js", link: "/examples/nextjs" },
+          { text: "Nuxt", link: "/examples/nuxt" },
           { text: "TanStack Start", link: "/examples/tanstack-start" },
           { text: "Hono", link: "/examples/hono" },
         ],

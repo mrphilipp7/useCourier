@@ -3,7 +3,7 @@ import { getResumePercent, type ChunkResumeState } from "./chunked-upload.js";
 import { FileError } from "./errors.js";
 import { createId } from "./ids.js";
 import type { InFlightRequests } from "./transport.js";
-import type { UploadItem, UploadResult, UseCourierProps } from "./types.js";
+import type { UploadItem, UploadResult, CourierOptions } from "./types.js";
 import { uploadFile } from "./upload-file.js";
 
 /**
@@ -35,7 +35,7 @@ export type Courier<TUploadResponse> = {
  * outlives the render (or setup) it started in (#29).
  */
 export function createCourier<TUploadResponse>(
-  getOptions: () => UseCourierProps<TUploadResponse>,
+  getOptions: () => CourierOptions<TUploadResponse>,
 ): Courier<TUploadResponse> {
   /**
    * The file list. Replaced (never mutated) on every change, and read

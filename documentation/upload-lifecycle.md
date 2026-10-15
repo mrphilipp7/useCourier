@@ -4,9 +4,11 @@ This page documents exactly what `status` transitions happen, and in what order,
 
 ## See it in action
 
-This is the [basic usage](/get-started#basic-usage) example with every lifecycle callback added. Each callback shows a toast (using [Sonner](https://ui.shadcn.com/docs/components/radix/sonner)) saying when it ran. `onUploadSuccess` also receives `data`, your server's parsed response, typed here as `{ url: string }` by the generic on `useCourier`:
+This is the [basic usage](/get-started#basic-usage) example with every lifecycle callback added. Each callback shows a toast (using [Sonner](https://ui.shadcn.com/docs/components/radix/sonner) in React, or [vue-sonner](https://vue-sonner.vercel.app/) in Vue) saying when it ran. `onUploadSuccess` also receives `data`, your server's parsed response, typed here as `{ url: string }` by the generic on `useCourier`:
 
-```tsx
+::: code-group
+
+```tsx [React]
 import { useCourier } from "use-courier";
 import { toast } from "sonner";
 
@@ -65,28 +67,88 @@ export function UploadForm() {
 }
 ```
 
+```vue [Vue]
+<script setup lang="ts">
+import { toast } from "vue-sonner";
+import { useCourier } from "use-courier/vue";
+
+const { files, addFile, retryUpload, removeFile } = useCourier<{
+  url: string;
+}>({
+  url: "/api/uploads",
+  beforeUpload: ({ item }) => {
+    toast("I ran before the upload", { description: item.file.name });
+  },
+  onUploadSuccess: ({ item, data }) => {
+    toast.success("I ran after a successful upload", {
+      description: `${item.file.name} is at ${data.url}`,
+    });
+  },
+  onUploadError: ({ item, error }) => {
+    toast.error("I ran because the upload failed", {
+      description: `${item.file.name}: ${error.message}`,
+    });
+  },
+  onUploadFinish: ({ item }) => {
+    toast("I ran after the upload, success or failure", {
+      description: item.file.name,
+    });
+  },
+  onUploadRetry: ({ item }) => {
+    toast.info("I ran before the retry", { description: item.file.name });
+  },
+  onRemoveFile: ({ item }) => {
+    toast("I ran when the file was removed", {
+      description: item.file.name,
+    });
+  },
+});
+
+function handleFileChange(event: Event) {
+  const file = (event.target as HTMLInputElement).files?.[0];
+  if (file) addFile(file);
+}
+</script>
+
+<template>
+  <input type="file" @change="handleFileChange" />
+  <p v-for="item in files" :key="item.id">
+    {{ item.file.name }}: {{ item.status }} ({{ item.uploadProgress }}%)
+    <button v-if="item.status === 'error'" @click="retryUpload(item.id)">
+      Retry
+    </button>
+    <button @click="removeFile(item.id)">Remove</button>
+  </p>
+</template>
+```
+
+:::
+
 ### Try it
 
 Upload a file and watch the toasts. A successful upload shows `beforeUpload`, then `onUploadSuccess`, then `onUploadFinish`. Turn on **Simulate a failed upload** to see `onUploadError` instead, then click Retry to see `onUploadRetry` followed by `beforeUpload` again. Turn on **Reject the file in `beforeUpload`** to see a file rejected before any request is made.
 
-<LifecycleDemo />
+<FrameworkTabs>
+<template #react><LifecycleDemo /></template>
+<template #vue><VueLifecycleDemo /></template>
+</FrameworkTabs>
 
 ## Status state machine
 
-| From                       | To           | Trigger                                                                                                  |
-| -------------------------- | ------------ | -------------------------------------------------------------------------------------------------------- |
-| _(none)_                   | `uploading`  | `addFile` adds the file to `files` and starts the request                                                |
-| `uploading`                | `processing` | All bytes have been sent (`uploadProgress` reaches 100) and the hook is waiting on the server's response |
-| `uploading` / `processing` | `done`       | The server responds with a `2xx` status                                                                  |
-| `uploading` / `processing` | `error`      | A network error, a non-`2xx` response, a `beforeUpload`/`onUploadRetry` rejection, or a cancellation     |
-| `error`                    | `uploading`  | `retryUpload(id)` is called                                                                              |
+| From                       | To           | Trigger                                                                                                      |
+| -------------------------- | ------------ | ------------------------------------------------------------------------------------------------------------ |
+| _(none)_                   | `uploading`  | `addFile` adds the file to `files` and starts the request                                                    |
+| `uploading`                | `processing` | All bytes have been sent (`uploadProgress` reaches 100) and `useCourier` is waiting on the server's response |
+| `uploading` / `processing` | `done`       | The server responds with a `2xx` status                                                                      |
+| `uploading` / `processing` | `error`      | A network error, a non-`2xx` response, a `beforeUpload`/`onUploadRetry` rejection, or a cancellation         |
+| `error`                    | `uploading`  | `retryUpload(id)` is called                                                                                  |
 
 `idle` exists as a type but isn't a state you'll ever observe in `files` — every file is already `uploading` by the time `addFile` adds it to the list. `done` and `error` are terminal: the only way out of `error` is `retryUpload`, and there's no way out of `done` at all.
 
 ## How callbacks behave
 
 - **`item` is the file as it is when the callback runs**, matching its entry in `files` at that moment. `onUploadSuccess` also receives `data`, the server's parsed response. In `beforeUpload` it's `uploading` at 0%; in `onUploadSuccess` it's `done` at 100%; in `onUploadError` it's `error`, with `uploadProgress` frozen where the upload stopped. For a file `removeFile` cancelled, it's the file's last known state marked `error`, since the file is no longer in `files`.
-- **The latest version of each callback is the one that runs.** An upload can outlast the render it started in, so the hook always calls the callbacks, and uses `url` and `fileChunking`, from the most recent render. Callbacks can read current props and state without stale values.
+- **The latest version of each callback is the one that runs.** An upload can outlast the render it started in, so `useCourier` always calls the latest callbacks and uses the latest `url` and `fileChunking`: in React, from the most recent render; in Vue, from the current value of your options ref or getter. Callbacks can read current props and state without stale values.
 - **A callback that throws can't break an upload.** If `onUploadSuccess`, `onUploadError`, `onUploadFinish`, or `onRemoveFile` throws, the error is reported with the browser's [`reportError`](https://developer.mozilla.org/en-US/docs/Web/API/Window/reportError) (falling back to `console.error`), which logs it and reaches error-tracking tools. The file's `status` and the result `addFile`/`retryUpload` resolve with are unaffected. `beforeUpload` and `onUploadRetry` are different: throwing from them is how you reject a file.
 
 Before 0.6.0, `item` was the file as it was when the upload started (so `onUploadSuccess` saw `status: "idle"`), callbacks came from the render where the upload started, and a throwing `onUploadSuccess` marked a successful upload as `error`.

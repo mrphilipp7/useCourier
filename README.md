@@ -7,7 +7,7 @@
 [![npm version](https://img.shields.io/npm/v/use-courier.svg)](https://www.npmjs.com/package/use-courier)
 [![license](https://img.shields.io/npm/l/use-courier.svg)](https://github.com/mrphilipp7/useCourier/blob/main/LICENSE)
 
-A headless React hook for file uploads with real progress tracking, retries, cancellation, and chunked uploads for large files.
+A headless React hook and Vue 3 composable for file uploads with real progress tracking, retries, cancellation, and chunked uploads for large files.
 
 ## Why useCourier?
 
@@ -19,6 +19,7 @@ A headless React hook for file uploads with real progress tracking, retries, can
 - **Chunked uploads** — automatically splits large files into sequential requests, retrying failed chunks independently
 - **Authenticated APIs** — send auth headers (including async tokens), cookies, and extra form fields with every request
 - **Lifecycle callbacks** — `beforeUpload`, `onUploadSuccess`, `onUploadError`, `onUploadFinish`, `onUploadRetry`, `onRemoveFile`
+- **React and Vue** — the same API as a React hook (`use-courier`) and a Vue 3 composable (`use-courier/vue`)
 - **Headless** — no UI, no styling opinions; works with any component library
 - **Typed** — full TypeScript support, generic over your API's response shape
 
@@ -28,9 +29,11 @@ A headless React hook for file uploads with real progress tracking, retries, can
 npm install use-courier
 ```
 
-`use-courier` supports React 18 and React 19.
+`use-courier` supports React 18 and 19, and Vue 3.3 and later. Install only the framework you use.
 
 ## Basic usage
+
+### React
 
 ```tsx
 import type { ChangeEvent } from "react";
@@ -58,6 +61,28 @@ export function FileUpload() {
     </>
   );
 }
+```
+
+### Vue
+
+```vue
+<script setup lang="ts">
+import { useCourier } from "use-courier/vue";
+
+const { files, addFile } = useCourier({ url: "/api/uploads" });
+
+function handleFileChange(event: Event) {
+  const input = event.target as HTMLInputElement;
+  Array.from(input.files ?? []).forEach((file) => addFile(file));
+}
+</script>
+
+<template>
+  <input type="file" multiple @change="handleFileChange" />
+  <p v-for="item in files" :key="item.id">
+    {{ item.file.name }}: {{ item.status }} ({{ item.uploadProgress }}%)
+  </p>
+</template>
 ```
 
 ## Documentation

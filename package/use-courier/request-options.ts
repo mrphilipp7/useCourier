@@ -1,8 +1,8 @@
-import type { UploadHeaders, UploadItem, UseCourierProps } from "./types.js";
+import type { UploadHeaders, UploadItem, CourierOptions } from "./types.js";
 
 /** #20: the options that shape every upload request, as given to useCourier. */
 export type RequestOptions = Pick<
-  UseCourierProps,
+  CourierOptions,
   "method" | "headers" | "withCredentials" | "fieldName" | "formFields"
 >;
 

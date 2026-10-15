@@ -29,7 +29,7 @@ Your endpoint should:
 
 ## Response handling
 
-The hook parses the response body as JSON. A successful response is returned through `addFile` or `retryUpload`:
+`useCourier` parses the response body as JSON. A successful response is returned through `addFile` or `retryUpload`:
 
 ```ts
 {
@@ -94,7 +94,7 @@ Files larger than `threshold` are sent to `route` in sequential requests. Each r
 | `chunkIndex`  | The zero-based index of the current chunk. |
 | `totalChunks` | The total number of chunks for the file.   |
 
-The final chunk response becomes the upload result returned by the hook, so it must be valid JSON. Responses to earlier chunks are never read: any `2xx` status, including an empty `204`, counts as the chunk being received.
+The final chunk response becomes the upload result returned by `useCourier`, so it must be valid JSON. Responses to earlier chunks are never read: any `2xx` status, including an empty `204`, counts as the chunk being received.
 
 Before 0.4.0, every chunk response had to be valid JSON, and a non-JSON response left the upload stuck in `processing`.
 
