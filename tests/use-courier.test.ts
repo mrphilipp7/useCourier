@@ -1920,3 +1920,143 @@ describe("response details (#20)", () => {
     });
   });
 });
+
+describe("invalid chunk size (#27)", () => {
+  test.each([
+    ["threshold 0 and no chunkSize", { threshold: 0 }],
+    ["chunkSize 0", { threshold: 10, chunkSize: 0 }],
+    ["a negative chunkSize", { threshold: 10, chunkSize: -5 }],
+    ["a NaN chunkSize", { threshold: 10, chunkSize: Number.NaN }],
+  ])(
+    "%s fails the upload without sending any request",
+    async (_label, chunking) => {
+      const onUploadError = mock();
+      const { result } = renderHook(() =>
+        useCourier({
+          url: "/api/uploads",
+          onUploadError,
+          fileChunking: { route: "/api/uploads/chunks", ...chunking },
+        }),
+      );
+
+      let outcome: unknown;
+      await act(async () => {
+        outcome = await result.current.addFile(makeFile(12));
+      });
+
+      const error = (outcome as { error: Error }).error;
+      expect(error).toBeInstanceOf(RangeError);
+      expect(error.message).toContain("chunkSize must be a positive number");
+      expect(MockXMLHttpRequest.instances).toHaveLength(0);
+      expect(result.current.files[0]?.status).toBe("error");
+      expect(onUploadError).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  test("threshold 0 with an explicit chunkSize chunks every file", async () => {
+    const { result } = renderHook(() =>
+      useCourier({
+        url: "/api/uploads",
+        fileChunking: {
+          route: "/api/uploads/chunks",
+          threshold: 0,
+          chunkSize: 5,
+        },
+      }),
+    );
+
+    act(() => {
+      void result.current.addFile(makeFile(12));
+    });
+
+    expect(MockXMLHttpRequest.last.url).toBe("/api/uploads/chunks");
+    expect(MockXMLHttpRequest.last.body?.get("totalChunks")).toBe("3");
+  });
+});
+
+describe("ids without crypto.randomUUID (#28)", () => {
+  const UUID_V4 =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+  let originalRandomUUID: typeof crypto.randomUUID;
+  let originalGetRandomValues: typeof crypto.getRandomValues;
+
+  beforeEach(() => {
+    originalRandomUUID = crypto.randomUUID;
+    originalGetRandomValues = crypto.getRandomValues;
+    // What a plain-HTTP (insecure) origin or Safari < 15.4 looks like.
+    // @ts-expect-error -- simulating a browser without randomUUID
+    crypto.randomUUID = undefined;
+  });
+
+  afterEach(() => {
+    crypto.randomUUID = originalRandomUUID;
+    crypto.getRandomValues = originalGetRandomValues;
+  });
+
+  test("addFile uploads instead of throwing, with a v4 UUID id", async () => {
+    const { result } = renderHook(() => useCourier({ url: "/api/uploads" }));
+
+    let uploadPromise!: Promise<unknown>;
+    expect(() =>
+      act(() => {
+        uploadPromise = result.current.addFile(makeFile());
+      }),
+    ).not.toThrow();
+
+    expect(result.current.files[0]?.id).toMatch(UUID_V4);
+    expect(MockXMLHttpRequest.instances).toHaveLength(1);
+
+    let outcome: unknown;
+    await act(async () => {
+      MockXMLHttpRequest.last.respondWith(200, { ok: true });
+      outcome = await uploadPromise;
+    });
+    expect(outcome).toEqual({ success: true, data: { ok: true } });
+  });
+
+  test("chunked uploads get a v4 UUID uploadId", () => {
+    const { result } = renderHook(() =>
+      useCourier({
+        url: "/api/uploads",
+        fileChunking: {
+          route: "/api/uploads/chunks",
+          threshold: 10,
+          chunkSize: 5,
+        },
+      }),
+    );
+
+    act(() => {
+      void result.current.addFile(makeFile(12));
+    });
+
+    expect(MockXMLHttpRequest.last.body?.get("uploadId")).toMatch(UUID_V4);
+  });
+
+  test("fallback ids are unique", () => {
+    const { result } = renderHook(() => useCourier({ url: "/api/uploads" }));
+
+    act(() => {
+      for (let i = 0; i < 200; i++) void result.current.addFile(makeFile());
+    });
+
+    const ids = result.current.files.map((item) => item.id);
+    expect(new Set(ids).size).toBe(200);
+  });
+
+  test("still works with no Web Crypto randomness at all", () => {
+    // @ts-expect-error -- simulating an environment without getRandomValues
+    crypto.getRandomValues = undefined;
+    const { result } = renderHook(() => useCourier({ url: "/api/uploads" }));
+
+    act(() => {
+      void result.current.addFile(makeFile());
+      void result.current.addFile(makeFile());
+    });
+
+    const [first, second] = result.current.files;
+    expect(first?.id).toBeTruthy();
+    expect(first?.id).not.toBe(second?.id);
+    expect(MockXMLHttpRequest.instances).toHaveLength(2);
+  });
+});

@@ -81,6 +81,16 @@ export async function uploadInChunks<TResponse>({
   onProgress,
 }: UploadInChunksOptions): Promise<TResponse> {
   const chunkSize = getChunkSize(chunking);
+  // #27: chunkSize defaults to threshold, so threshold: 0 with no chunkSize
+  // (a natural way to say "chunk everything") gave a chunk size of 0 —
+  // Infinity chunks, each an empty request, forever. Fail before sending
+  // anything instead. Also catches a negative or NaN chunkSize.
+  if (!(Number.isFinite(chunkSize) && chunkSize > 0)) {
+    throw new RangeError(
+      `fileChunking.chunkSize must be a positive number, got ${chunkSize}. ` +
+        "It defaults to threshold, so set chunkSize when threshold is 0.",
+    );
+  }
   const totalChunks = Math.ceil(item.file.size / chunkSize);
   const maxChunkRetries = chunking.maxChunkRetries ?? 2;
 
