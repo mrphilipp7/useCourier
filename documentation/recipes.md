@@ -1,12 +1,14 @@
 # Recipes
 
-Copy-paste solutions for common upload needs. Each recipe is a complete component built on the [basic usage](/get-started#basic-usage) example, so you can drop it into a project and adapt it.
+Copy-paste solutions for common upload needs. Each recipe is a complete component built on the [basic usage](/get-started#basic-usage) example, in both React and Vue, so you can drop it into a project and adapt it. Pick your framework's tab on each recipe.
 
 ## Upload to an authenticated API
 
 Send a token with every request using `headers`. Passing a function means it's called for each request, so a long chunked upload keeps sending a fresh token instead of failing when the first one expires:
 
-```tsx
+::: code-group
+
+```tsx [React]
 import { useCourier, XhrResponseError } from "use-courier";
 import { getAccessToken } from "./auth"; // your auth library's token getter
 
@@ -42,13 +44,48 @@ export function AuthenticatedUpload() {
 }
 ```
 
+```vue [Vue]
+<script setup lang="ts">
+import { useCourier, XhrResponseError } from "use-courier/vue";
+import { getAccessToken } from "./auth"; // your auth library's token getter
+
+const { files, addFile } = useCourier({
+  url: "https://api.example.com/uploads",
+  headers: async () => ({
+    Authorization: `Bearer ${await getAccessToken()}`,
+  }),
+  onUploadError: ({ error }) => {
+    if (error instanceof XhrResponseError && error.status === 401) {
+      window.location.assign("/login");
+    }
+  },
+});
+
+function handleFileChange(event: Event) {
+  const file = (event.target as HTMLInputElement).files?.[0];
+  if (file) addFile(file);
+}
+</script>
+
+<template>
+  <input type="file" @change="handleFileChange" />
+  <p v-for="item in files" :key="item.id">
+    {{ item.file.name }}: {{ item.status }} ({{ item.uploadProgress }}%)
+  </p>
+</template>
+```
+
+:::
+
 For a cookie-based session on another origin, use `withCredentials: true` instead of `headers`. Either way, a server on a different origin has to allow it with CORS; see [Authentication](/backend-integration#authentication). This recipe needs version 0.7.0 or later.
 
 ## Validate file size and type
 
 Throw from `beforeUpload` to reject a file before any request is made. The rejection comes back as the result of `addFile`, so you can show the reason:
 
-```tsx
+::: code-group
+
+```tsx [React]
 import { useState } from "react";
 import { useCourier } from "use-courier";
 
@@ -95,13 +132,60 @@ export function ValidatedUpload() {
 }
 ```
 
+```vue [Vue]
+<script setup lang="ts">
+import { ref } from "vue";
+import { useCourier } from "use-courier/vue";
+
+const MAX_BYTES = 10 * 1024 * 1024; // 10 MB
+const ALLOWED_TYPES = ["image/png", "image/jpeg", "application/pdf"];
+
+const message = ref("");
+const { files, addFile } = useCourier({
+  url: "/api/uploads",
+  beforeUpload: ({ item }) => {
+    if (!ALLOWED_TYPES.includes(item.file.type)) {
+      throw new Error("Only PNG, JPEG, and PDF files are allowed.");
+    }
+    if (item.file.size > MAX_BYTES) {
+      throw new Error("Files must be 10 MB or smaller.");
+    }
+  },
+});
+
+async function handleFileChange(event: Event) {
+  const file = (event.target as HTMLInputElement).files?.[0];
+  if (!file) return;
+
+  const result = await addFile(file);
+  message.value = result.success ? "" : result.error.message;
+}
+</script>
+
+<template>
+  <input
+    type="file"
+    :accept="ALLOWED_TYPES.join(',')"
+    @change="handleFileChange"
+  />
+  <p v-if="message" role="alert">{{ message }}</p>
+  <p v-for="item in files" :key="item.id">
+    {{ item.file.name }}: {{ item.status }}
+  </p>
+</template>
+```
+
+:::
+
 The `accept` attribute only filters the file picker. Users can still drag files in or choose "All files", so `beforeUpload` is what actually enforces the rule. It also runs again on every `retryUpload`, so a rejected file can't be uploaded by retrying it.
 
 ## Drag-and-drop upload area
 
 Call `addFile` for each dropped file. `preventDefault` in `onDragOver` is what tells the browser the area accepts drops:
 
-```tsx
+::: code-group
+
+```tsx [React]
 import { useState } from "react";
 import { useCourier } from "use-courier";
 
@@ -143,11 +227,49 @@ export function DropZone() {
 }
 ```
 
+```vue [Vue]
+<script setup lang="ts">
+import { ref } from "vue";
+import { useCourier } from "use-courier/vue";
+
+const isDragging = ref(false);
+const { files, addFile } = useCourier({ url: "/api/uploads" });
+
+function handleDrop(event: DragEvent) {
+  isDragging.value = false;
+  Array.from(event.dataTransfer?.files ?? []).forEach((file) => addFile(file));
+}
+</script>
+
+<template>
+  <div
+    :style="{
+      padding: '32px',
+      border: '2px dashed',
+      borderColor: isDragging ? 'royalblue' : 'gray',
+      textAlign: 'center',
+    }"
+    @dragover.prevent="isDragging = true"
+    @dragleave="isDragging = false"
+    @drop.prevent="handleDrop"
+  >
+    {{ isDragging ? "Drop to upload" : "Drag files here" }}
+  </div>
+  <p v-for="item in files" :key="item.id">
+    {{ item.file.name }}: {{ item.status }} ({{ item.uploadProgress }}%)
+  </p>
+</template>
+```
+
+:::
+
 ## Image previews
 
 Show a thumbnail as soon as a file is added, before it finishes uploading. `URL.createObjectURL` makes a temporary URL for the local file; revoke it when the preview goes away so the browser can free the memory:
 
-```tsx
+::: code-group
+
+```tsx [React]
 import { useEffect, useState } from "react";
 import { useCourier } from "use-courier";
 
@@ -200,11 +322,65 @@ export function ImageUpload() {
 }
 ```
 
+```vue [Vue]
+<script setup lang="ts">
+import { onBeforeUnmount, shallowRef, watch } from "vue";
+import { useCourier } from "use-courier/vue";
+
+const { files, addFile } = useCourier({ url: "/api/uploads" });
+
+// One preview URL per image file, created when it's added and revoked
+// when it's removed, so the browser can free the memory.
+const previews = shallowRef(new Map<string, string>());
+watch(files, (current) => {
+  const next = new Map<string, string>();
+  for (const item of current) {
+    if (!item.file.type.startsWith("image/")) continue;
+    next.set(
+      item.id,
+      previews.value.get(item.id) ?? URL.createObjectURL(item.file),
+    );
+  }
+  for (const [id, url] of previews.value) {
+    if (!next.has(id)) URL.revokeObjectURL(url);
+  }
+  previews.value = next;
+});
+onBeforeUnmount(() =>
+  previews.value.forEach((url) => URL.revokeObjectURL(url)),
+);
+
+function handleFileChange(event: Event) {
+  const input = event.target as HTMLInputElement;
+  Array.from(input.files ?? []).forEach((file) => addFile(file));
+}
+</script>
+
+<template>
+  <input type="file" accept="image/*" multiple @change="handleFileChange" />
+  <div v-for="item in files" :key="item.id" style="display: flex; gap: 8px">
+    <img
+      v-if="previews.get(item.id)"
+      :src="previews.get(item.id)"
+      :alt="item.file.name"
+      width="64"
+      height="64"
+      style="object-fit: cover"
+    />
+    <span>{{ item.file.name }}: {{ item.uploadProgress }}%</span>
+  </div>
+</template>
+```
+
+:::
+
 ## Retry automatically with backoff
 
 Call `retryUpload` from `onUploadError`, waiting longer after each failure: 1 second, then 2, then 4. Only network errors and server errors (`5xx`) are retried; a cancellation, a `beforeUpload` rejection, or a client error like `401` is left alone:
 
-```tsx
+::: code-group
+
+```tsx [React]
 import { useEffect, useRef } from "react";
 import { useCourier, XhrRequestError, XhrResponseError } from "use-courier";
 
@@ -262,13 +438,67 @@ export function AutoRetryUpload() {
 }
 ```
 
+```vue [Vue]
+<script setup lang="ts">
+import { onBeforeUnmount } from "vue";
+import { useCourier, XhrRequestError, XhrResponseError } from "use-courier/vue";
+
+const MAX_RETRIES = 3;
+const attempts = new Map<string, number>();
+const timers = new Set<ReturnType<typeof setTimeout>>();
+
+// Don't start a retry after the component is gone.
+onBeforeUnmount(() => timers.forEach(clearTimeout));
+
+const courier = useCourier({
+  url: "/api/uploads",
+  onUploadError: ({ item, error }) => {
+    const retryable =
+      error instanceof XhrRequestError ||
+      (error instanceof XhrResponseError && error.status >= 500);
+    const attempt = attempts.get(item.id) ?? 0;
+    if (!retryable || attempt >= MAX_RETRIES) return;
+
+    attempts.set(item.id, attempt + 1);
+    const timer = setTimeout(
+      () => {
+        timers.delete(timer);
+        void courier.retryUpload(item.id);
+      },
+      1000 * 2 ** attempt,
+    );
+    timers.add(timer);
+  },
+  onUploadSuccess: ({ item }) => attempts.delete(item.id),
+  onRemoveFile: ({ item }) => attempts.delete(item.id),
+});
+const { files, addFile } = courier;
+
+function handleFileChange(event: Event) {
+  const file = (event.target as HTMLInputElement).files?.[0];
+  if (file) addFile(file);
+}
+</script>
+
+<template>
+  <input type="file" @change="handleFileChange" />
+  <p v-for="item in files" :key="item.id">
+    {{ item.file.name }}: {{ item.status }}
+  </p>
+</template>
+```
+
+:::
+
 Client errors like `401 Unauthorized` or `413 Payload Too Large` aren't retried, since they'd fail the same way again. For chunked uploads, each chunk is already retried on its own (`fileChunking.maxChunkRetries`) before the upload fails, and `retryUpload` resumes from the failed chunk. This recipe needs version 0.7.0 or later.
 
 ## Disable submit until uploads finish
 
 Use `overall` to keep a form's submit button disabled until every file is done, and collect each server response in `onUploadSuccess`:
 
-```tsx
+::: code-group
+
+```tsx [React]
 import { useState } from "react";
 import { useCourier } from "use-courier";
 
@@ -315,13 +545,67 @@ export function UploadForm() {
 }
 ```
 
+```vue [Vue]
+<script setup lang="ts">
+import { computed, ref } from "vue";
+import { useCourier } from "use-courier/vue";
+
+type UploadResponse = { url: string };
+
+const urls = ref(new Map<string, string>());
+const { files, addFile, overall } = useCourier<UploadResponse>({
+  url: "/api/uploads",
+  onUploadSuccess: ({ item, data }) => {
+    urls.value.set(item.id, data.url);
+  },
+});
+
+const busy = computed(
+  () =>
+    overall.value.status === "uploading" ||
+    overall.value.status === "processing",
+);
+
+function handleFileChange(event: Event) {
+  const input = event.target as HTMLInputElement;
+  Array.from(input.files ?? []).forEach((file) => addFile(file));
+}
+
+function handleSubmit() {
+  const attachments = files.value.flatMap(
+    (item) => urls.value.get(item.id) ?? [],
+  );
+  console.log("Submitting with", attachments);
+}
+</script>
+
+<template>
+  <form @submit.prevent="handleSubmit">
+    <input type="file" multiple @change="handleFileChange" />
+    <p v-for="item in files" :key="item.id">
+      {{ item.file.name }}: {{ item.status }}
+    </p>
+    <button type="submit" :disabled="overall.status !== 'done'">
+      {{ busy ? `Uploading… ${overall.weightedProgress}%` : "Submit" }}
+    </button>
+    <p v-if="overall.status === 'error'" role="alert">
+      Remove or retry the failed files to continue.
+    </p>
+  </form>
+</template>
+```
+
+:::
+
 `overall.status` is only `"done"` when every tracked file is done, so the button stays disabled while anything is uploading or has failed. `weightedProgress` weights each file by its size, so one large file doesn't make the bar jump. Reading `data` in `onUploadSuccess` needs version 0.7.0 or later; on older versions, use the result `addFile` resolves with.
 
 ## Warn before leaving mid-upload
 
 Closing or reloading the page cancels every upload in progress. Ask the browser to confirm first while any file is still sending:
 
-```tsx
+::: code-group
+
+```tsx [React]
 import { useEffect } from "react";
 import { useCourier } from "use-courier";
 
@@ -360,5 +644,46 @@ export function UploadWithLeaveWarning() {
   );
 }
 ```
+
+```vue [Vue]
+<script setup lang="ts">
+import { computed, watchEffect } from "vue";
+import { useCourier } from "use-courier/vue";
+
+const { files, addFile } = useCourier({ url: "/api/uploads" });
+const isUploading = computed(() =>
+  files.value.some(
+    (item) => item.status === "uploading" || item.status === "processing",
+  ),
+);
+
+// Re-runs when isUploading changes; the cleanup removes the old listener,
+// and runs again when the component unmounts.
+watchEffect((onCleanup) => {
+  if (!isUploading.value) return;
+
+  const warn = (event: BeforeUnloadEvent) => {
+    event.preventDefault();
+    event.returnValue = ""; // older browsers need this as well
+  };
+  window.addEventListener("beforeunload", warn);
+  onCleanup(() => window.removeEventListener("beforeunload", warn));
+});
+
+function handleFileChange(event: Event) {
+  const file = (event.target as HTMLInputElement).files?.[0];
+  if (file) addFile(file);
+}
+</script>
+
+<template>
+  <input type="file" @change="handleFileChange" />
+  <p v-for="item in files" :key="item.id">
+    {{ item.file.name }}: {{ item.status }} ({{ item.uploadProgress }}%)
+  </p>
+</template>
+```
+
+:::
 
 This checks the files directly rather than `overall.status`, because `overall.status` reports `"error"` as soon as any file fails, even while others are still uploading. Browsers show their own generic message; the text can't be customized. Navigating within a single-page app doesn't trigger `beforeunload`, but unmounting the component still cancels its uploads, so use your router's navigation guard for that case.
