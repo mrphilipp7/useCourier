@@ -5,7 +5,7 @@ layout: home
 hero:
   name: "useCourier"
   text: "File uploads with real progress"
-  tagline: A headless React hook with XHR progress tracking, retries, cancellation, and chunked uploads for large files.
+  tagline: A headless React hook and Vue composable with XHR progress tracking, retries, cancellation, and chunked uploads for large files.
   actions:
     - theme: brand
       text: Get Started
@@ -22,5 +22,5 @@ features:
   - title: Chunked uploads for large files
     details: Files too big for a single request are split into sequential chunks, each retried independently on failure.
   - title: Headless and typed
-    details: No UI, no styling opinions — bring your own components. Fully typed API with generics for your response shape.
+    details: No UI, no styling opinions — bring your own components, in React or Vue. Fully typed API with generics for your response shape.
 ---

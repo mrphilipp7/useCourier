@@ -10,11 +10,14 @@
     "url": "https://github.com/mrphilipp7/useCourier/issues"
   },
   "homepage": "https://mrphilipp7.github.io/useCourier/",
-  "description": "A headless React hook for file uploads with progress tracking, retries, cancellation, and chunked uploads for large files.",
+  "description": "A headless React hook and Vue 3 composable for file uploads with progress tracking, retries, cancellation, and chunked uploads for large files.",
   "keywords": [
     "react",
     "react-hook",
     "hooks",
+    "vue",
+    "vue3",
+    "composable",
     "file-upload",
     "upload",
     "upload-progress",

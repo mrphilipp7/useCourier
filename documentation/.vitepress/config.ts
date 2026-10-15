@@ -18,6 +18,7 @@ export default defineConfig({
         items: [
           { text: "Getting Started", link: "/get-started" },
           { text: "Recipes", link: "/recipes" },
+          { text: "Vue", link: "/vue" },
         ],
       },
       {

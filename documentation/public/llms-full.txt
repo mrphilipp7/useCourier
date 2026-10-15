@@ -1,6 +1,6 @@
 # useCourier
 
-> A headless React hook for tracked file uploads: XHR progress, retries, cancellation, and optional chunked uploads for large files.
+> A headless React hook and Vue 3 composable for tracked file uploads: XHR progress, retries, cancellation, and optional chunked uploads for large files.
 
 This file concatenates every page of the useCourier documentation for tools that read one file instead of following links. See https://mrphilipp7.github.io/useCourier/llms.txt for the same content as a linked index.
 
@@ -10,11 +10,11 @@ This file concatenates every page of the useCourier documentation for tools that
 
 # Getting Started
 
-A React hook for tracking and managing file uploads.
+A React hook and Vue composable for tracking and managing file uploads.
 
 ## What is useCourier?
 
-`useCourier` is a React hook for uploading files while tracking their progress, status, errors, and completion lifecycle.
+`useCourier` is a React hook, and a Vue 3 composable, for uploading files while tracking their progress, status, errors, and completion lifecycle.
 
 ## Features
 
@@ -30,16 +30,33 @@ A React hook for tracking and managing file uploads.
 
 Choose your preferred package manager:
 
-```bash
+::: code-group
+
+```bash [npm]
 npm install use-courier
+```
+
+```bash [yarn]
 yarn add use-courier
+```
+
+```bash [pnpm]
 pnpm add use-courier
+```
+
+```bash [bun]
 bun add use-courier
 ```
 
+:::
+
+It works with React 18 or 19, or Vue 3.3 and later. Install only the framework you use; the other isn't required.
+
 ## Basic usage
 
-```tsx
+::: code-group
+
+```tsx [React]
 import { useCourier } from "use-courier";
 
 export function UploadForm() {
@@ -64,6 +81,32 @@ export function UploadForm() {
   );
 }
 ```
+
+```vue [Vue]
+<script setup lang="ts">
+import { useCourier } from "use-courier/vue";
+
+const { files, addFile } = useCourier({
+  url: "/api/uploads",
+});
+
+function handleFileChange(event: Event) {
+  const file = (event.target as HTMLInputElement).files?.[0];
+  if (file) addFile(file);
+}
+</script>
+
+<template>
+  <input type="file" @change="handleFileChange" />
+  <p v-for="item in files" :key="item.id">
+    {{ item.file.name }}: {{ item.status }} ({{ item.uploadProgress }}%)
+  </p>
+</template>
+```
+
+:::
+
+The rest of the docs show React examples. In Vue, the options and callbacks are identical; see Vue for the few differences, like `files` being a ref.
 
 ---
 
@@ -436,13 +479,104 @@ This checks the files directly rather than `overall.status`, because `overall.st
 
 ---
 
+# Source: /vue
+
+# Vue
+
+`use-courier` includes a Vue 3 composable with the same API and behavior as the React hook: progress, retries, cancellation, chunked uploads, request options, and every lifecycle callback. Import it from `use-courier/vue`. It needs Vue 3.3 or later, and React isn't required.
+
+## Basic usage
+
+```vue
+<script setup lang="ts">
+import { useCourier } from "use-courier/vue";
+
+const { files, addFile } = useCourier({
+  url: "/api/uploads",
+});
+
+function handleFileChange(event: Event) {
+  const input = event.target as HTMLInputElement;
+  Array.from(input.files ?? []).forEach((file) => addFile(file));
+}
+</script>
+
+<template>
+  <input type="file" multiple @change="handleFileChange" />
+  <p v-for="item in files" :key="item.id">
+    {{ item.file.name }}: {{ item.status }} ({{ item.uploadProgress }}%)
+  </p>
+</template>
+```
+
+## How it differs from React
+
+Options, callbacks, `addFile`, `retryUpload`, `removeFile`, and the error classes are identical, so the examples on every other page apply to Vue too; they're written for React. Only these differ:
+
+|  | React (`use-courier`) | Vue (`use-courier/vue`) |
+| --- | --- | --- |
+| `files` | An array | A ref: `files.value` in `<script>`, just `files` in the template |
+| `overall` | An object | A computed ref |
+| Options | A plain object; the latest render's props are used | A plain object, a ref, or a getter; re-read every time an option is needed |
+| Cancelled automatically | When the component unmounts | When the component unmounts (more precisely, when the effect scope it was created in is disposed) |
+
+## Reactive options
+
+When options depend on reactive state, pass a getter. It's called each time the composable needs an option, so a change applies to the next request:
+
+```ts
+import { ref } from "vue";
+import { useCourier } from "use-courier/vue";
+import { getAccessToken } from "./auth";
+
+const folderId = ref("inbox");
+
+const { files, addFile } = useCourier(() => ({
+  url: "/api/uploads",
+  headers: async () => ({
+    Authorization: `Bearer ${await getAccessToken()}`,
+  }),
+  formFields: { folderId: folderId.value },
+}));
+```
+
+The whole options object is what can be reactive, not each field. Options like `headers` and the callbacks are functions themselves, so a getter per field would be ambiguous. Read refs inside the getter, as `folderId.value` is above, rather than passing a ref as a field's value.
+
+## Outside components
+
+`useCourier` works anywhere, including a Pinia store or a plain module. Uploads are cancelled automatically only when it's called inside a component's `setup` (or any `effectScope`), at the moment that scope ends. Anywhere else, uploads keep running until they finish or you call `removeFile`.
+
+## TypeScript
+
+Pass your upload API's response type the same way as in React, and `data` in `onUploadSuccess` and the result of `addFile` are typed with it:
+
+```ts
+const { files, addFile } = useCourier<{ url: string }>({
+  url: "/api/uploads",
+  onUploadSuccess: ({ item, data }) => {
+    console.log(`${item.file.name} is at ${data.url}`);
+  },
+});
+```
+
+`use-courier/vue` also exports `CourierOptions` (the options type) and `UseCourierReturn` (what the composable returns).
+
+---
+
 # Source: /api
 
 # API Reference
 
 ## `useCourier`
 
-Creates an upload manager for files selected in a React component.
+Creates an upload manager for files selected in a component. Import it for your framework:
+
+```ts
+import { useCourier } from "use-courier"; // React (same as "use-courier/react")
+import { useCourier } from "use-courier/vue"; // Vue 3.3+
+```
+
+Both take the same options and return the same functions. In Vue, `files` and `overall` are refs, and the options can be a ref or a getter; see Vue. The examples below use React.
 
 ```tsx
 const { files, addFile, retryUpload, removeFile } = useCourier({
@@ -459,6 +593,8 @@ const { addFile } = useCourier<UploadResponse>({
 ```
 
 ### Options
+
+The options object's type is `CourierOptions`, exported from both `use-courier` and `use-courier/vue`. Its old name, `UseCourierProps`, still works.
 
 Every callback receives `{ item }` (plus `data` for `onUploadSuccess` and `error` for `onUploadError`), where `item` is the file's current state. See How callbacks behave for what `item` contains in each callback and what happens if a callback throws.
 
@@ -608,7 +744,7 @@ const { addFile } = useCourier({
 
 ### `files`
 
-- **Type:** `UploadItem[]`
+- **Type:** `UploadItem[]` (in Vue, a ref of `UploadItem[]`)
 
 The current files tracked by the hook. Each item includes:
 
@@ -655,7 +791,7 @@ Removes a tracked file by ID. If its upload is still in progress, the request is
 
 ### `overall`
 
-- **Type:** `OverallUploadState`
+- **Type:** `OverallUploadState` (in Vue, a computed ref of it)
 
 Aggregate progress and status across every currently tracked file, recomputed whenever `files` changes:
 

@@ -1,14 +1,15 @@
 # useCourier
 
-> A headless React hook for tracked file uploads: XHR progress, retries, cancellation, and optional chunked uploads for large files.
+> A headless React hook and Vue 3 composable for tracked file uploads: XHR progress, retries, cancellation, and optional chunked uploads for large files.
 
-useCourier (`use-courier` on npm) exposes a single hook, `useCourier`, that manages a list of tracked files through an upload lifecycle (`idle` → `uploading` → `processing` → `done`/`error`). It sends files as `multipart/form-data` via `XMLHttpRequest` (needed for upload progress events) to a backend endpoint the consumer controls, and can optionally split large files into sequential chunked requests. It renders no UI — consumers build their own file list/progress UI from the returned `files` array and lifecycle callbacks (`beforeUpload`, `onUploadSuccess`, `onUploadError`, `onUploadFinish`, `onUploadRetry`, `onRemoveFile`).
+useCourier (`use-courier` on npm) exposes `useCourier` as a React hook and as a Vue 3 composable with the same API. It manages a list of tracked files through an upload lifecycle (`idle` → `uploading` → `processing` → `done`/`error`). It sends files as `multipart/form-data` via `XMLHttpRequest` (needed for upload progress events) to a backend endpoint the consumer controls, and can optionally split large files into sequential chunked requests. It renders no UI — consumers build their own file list/progress UI from the returned `files` array and lifecycle callbacks (`beforeUpload`, `onUploadSuccess`, `onUploadError`, `onUploadFinish`, `onUploadRetry`, `onRemoveFile`).
 
-Package entry point: `import { useCourier } from "use-courier"`. Peer dependency: React 18 or 19.
+Entry points: `import { useCourier } from "use-courier"` for React (identical to `use-courier/react`), and `import { useCourier } from "use-courier/vue"` for Vue. Peer dependencies: React 18 or 19, or Vue 3.3+; both are optional, so install only the one you use.
 
 ## Docs
 
 - [Getting Started](https://mrphilipp7.github.io/useCourier/get-started): install, basic usage, and the returned `files`/`addFile` shape.
+- [Vue](https://mrphilipp7.github.io/useCourier/vue): the Vue 3 composable — basic usage, how it differs from React (`files`/`overall` are refs; options can be a ref or getter), reactive options, and use outside components.
 - [Recipes](https://mrphilipp7.github.io/useCourier/recipes): copy-paste components for uploading to an authenticated API, file validation, drag-and-drop, image previews, automatic retry with backoff, disabling submit until uploads finish, and warning before leaving mid-upload.
 - [API Reference](https://mrphilipp7.github.io/useCourier/api): full `useCourier` options (including request `headers`, `withCredentials`, `method`, `fieldName`, `formFields`), return values, and exported error classes.
 - [Upload Lifecycle](https://mrphilipp7.github.io/useCourier/upload-lifecycle): the full `status` state machine, what happens when a chunk fails or an upload is cancelled, and how `retryUpload` resumes a failed chunked upload rather than restarting it (a full page reload still starts over, though).

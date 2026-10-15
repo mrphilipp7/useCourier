@@ -1,10 +1,10 @@
 # Getting Started
 
-A React hook for tracking and managing file uploads.
+A React hook and Vue composable for tracking and managing file uploads.
 
 ## What is useCourier?
 
-`useCourier` is a React hook for uploading files while tracking their progress, status, errors, and completion lifecycle.
+`useCourier` is a React hook, and a Vue 3 composable, for uploading files while tracking their progress, status, errors, and completion lifecycle.
 
 ## Features
 
@@ -40,9 +40,13 @@ bun add use-courier
 
 :::
 
+It works with React 18 or 19, or Vue 3.3 and later. Install only the framework you use; the other isn't required.
+
 ## Basic usage
 
-```tsx
+::: code-group
+
+```tsx [React]
 import { useCourier } from "use-courier";
 
 export function UploadForm() {
@@ -68,6 +72,34 @@ export function UploadForm() {
 }
 ```
 
+```vue [Vue]
+<script setup lang="ts">
+import { useCourier } from "use-courier/vue";
+
+const { files, addFile } = useCourier({
+  url: "/api/uploads",
+});
+
+function handleFileChange(event: Event) {
+  const file = (event.target as HTMLInputElement).files?.[0];
+  if (file) addFile(file);
+}
+</script>
+
+<template>
+  <input type="file" @change="handleFileChange" />
+  <p v-for="item in files" :key="item.id">
+    {{ item.file.name }}: {{ item.status }} ({{ item.uploadProgress }}%)
+  </p>
+</template>
+```
+
+:::
+
+The rest of the docs show React examples. In Vue, the options and callbacks are identical; see [Vue](/vue) for the few differences, like `files` being a ref.
+
 ### Try it
 
 <UploadDemo />
+
+This demo uses the React hook. The [Vue](/vue#try-it) page has the same demo running the Vue composable.

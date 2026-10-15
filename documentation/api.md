@@ -2,7 +2,14 @@
 
 ## `useCourier`
 
-Creates an upload manager for files selected in a React component.
+Creates an upload manager for files selected in a component. Import it for your framework:
+
+```ts
+import { useCourier } from "use-courier"; // React (same as "use-courier/react")
+import { useCourier } from "use-courier/vue"; // Vue 3.3+
+```
+
+Both take the same options and return the same functions. In Vue, `files` and `overall` are refs, and the options can be a ref or a getter; see [Vue](/vue). The examples below use React.
 
 ```tsx
 const { files, addFile, retryUpload, removeFile } = useCourier({
@@ -19,6 +26,8 @@ const { addFile } = useCourier<UploadResponse>({
 ```
 
 ### Options
+
+The options object's type is `CourierOptions`, exported from both `use-courier` and `use-courier/vue`. Its old name, `UseCourierProps`, still works.
 
 Every callback receives `{ item }` (plus `data` for `onUploadSuccess` and `error` for `onUploadError`), where `item` is the file's current state. See [How callbacks behave](/upload-lifecycle#how-callbacks-behave) for what `item` contains in each callback and what happens if a callback throws.
 
@@ -168,7 +177,7 @@ const { addFile } = useCourier({
 
 ### `files`
 
-- **Type:** `UploadItem[]`
+- **Type:** `UploadItem[]` (in Vue, a ref of `UploadItem[]`)
 
 The current files tracked by the hook. Each item includes:
 
@@ -215,7 +224,7 @@ Removes a tracked file by ID. If its upload is still in progress, the request is
 
 ### `overall`
 
-- **Type:** `OverallUploadState`
+- **Type:** `OverallUploadState` (in Vue, a computed ref of it)
 
 Aggregate progress and status across every currently tracked file, recomputed whenever `files` changes:
 
