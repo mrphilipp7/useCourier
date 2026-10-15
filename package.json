@@ -110,7 +110,8 @@
     "typescript": "^5.0.0",
     "typescript-eslint": "^8.67.0",
     "vitepress": "^2.0.0-alpha.19",
-    "vue": "^3.5.0"
+    "vue": "^3.5.0",
+    "vue-sonner": "^2.0.9"
   },
   "peerDependencies": {
     "react": "^18.0.0 || ^19.0.0",

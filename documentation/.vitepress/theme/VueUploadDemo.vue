@@ -2,6 +2,7 @@
 import { onBeforeUnmount, onMounted, ref } from "vue";
 import { useCourier } from "../../../package/use-courier/vue/index.js";
 import { installDemoXHR } from "./demo-xhr";
+import VueDemoFileList from "./VueDemoFileList.vue";
 
 const simulateFailure = ref(false);
 
@@ -38,41 +39,13 @@ function handleFileChange(event: Event) {
 
     <input type="file" multiple @change="handleFileChange" />
 
-    <div v-if="files.length" class="mt-4 flex flex-col gap-3">
-      <div v-for="item in files" :key="item.id" class="rounded-lg border p-3">
-        <div class="flex items-center justify-between gap-2">
-          <span class="font-medium">{{ item.file.name }}</span>
-          <span class="text-muted-foreground">
-            {{ item.status }} · {{ item.uploadProgress }}%
-          </span>
-        </div>
-        <div class="mt-2 h-1.5 overflow-hidden rounded bg-muted">
-          <div
-            class="h-full bg-primary transition-all"
-            :style="{ width: `${item.uploadProgress}%` }"
-          />
-        </div>
-        <div class="mt-2 flex gap-2">
-          <button
-            v-if="item.status === 'error'"
-            type="button"
-            class="rounded-md border px-2 py-1"
-            @click="retryUpload(item.id)"
-          >
-            Retry
-          </button>
-          <button
-            type="button"
-            class="rounded-md border px-2 py-1"
-            @click="removeFile(item.id)"
-          >
-            Remove
-          </button>
-        </div>
-      </div>
-      <p class="text-muted-foreground">
-        Overall: {{ overall.status }} · {{ overall.weightedProgress }}%
-      </p>
-    </div>
+    <VueDemoFileList
+      :files="files"
+      @retry="(id) => retryUpload(id)"
+      @remove="removeFile"
+    />
+    <p v-if="files.length" class="mt-3 text-muted-foreground">
+      Overall: {{ overall.status }} · {{ overall.weightedProgress }}%
+    </p>
   </div>
 </template>

@@ -100,6 +100,7 @@ The options and callbacks are identical in React and Vue. Throughout the docs, e
 
 ### Try it
 
-<UploadDemo />
-
-This demo uses the React hook. The [Vue](/vue#try-it) page has the same demo running the Vue composable.
+<FrameworkTabs>
+<template #react><UploadDemo /></template>
+<template #vue><VueUploadDemo /></template>
+</FrameworkTabs>

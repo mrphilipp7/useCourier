@@ -128,9 +128,10 @@ function handleFileChange(event: Event) {
 
 Upload a file and watch the toasts. A successful upload shows `beforeUpload`, then `onUploadSuccess`, then `onUploadFinish`. Turn on **Simulate a failed upload** to see `onUploadError` instead, then click Retry to see `onUploadRetry` followed by `beforeUpload` again. Turn on **Reject the file in `beforeUpload`** to see a file rejected before any request is made.
 
-<LifecycleDemo />
-
-The demo runs the React version. The Vue composable fires the same callbacks, in the same order.
+<FrameworkTabs>
+<template #react><LifecycleDemo /></template>
+<template #vue><VueLifecycleDemo /></template>
+</FrameworkTabs>
 
 ## Status state machine
 

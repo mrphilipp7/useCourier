@@ -4,6 +4,8 @@ import { defineComponent, h } from "vue";
 import type { ComponentType } from "react";
 import ReactDemoMount from "./ReactDemoMount.vue";
 import VueUploadDemo from "./VueUploadDemo.vue";
+import VueLifecycleDemo from "./VueLifecycleDemo.vue";
+import FrameworkTabs from "./FrameworkTabs.vue";
 import { UploadDemo } from "./UploadDemo.js";
 import { LifecycleDemo } from "./LifecycleDemo.js";
 import "./shadcn.css";
@@ -22,5 +24,7 @@ export default {
     app.component("LifecycleDemo", reactDemo(LifecycleDemo));
     // Native Vue: the docs site is a Vue app, so no React mount needed.
     app.component("VueUploadDemo", VueUploadDemo);
+    app.component("VueLifecycleDemo", VueLifecycleDemo);
+    app.component("FrameworkTabs", FrameworkTabs);
   },
 } satisfies Theme;
