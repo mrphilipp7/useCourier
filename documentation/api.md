@@ -157,12 +157,12 @@ const { addFile } = useCourier({
 });
 ```
 
-| Property          | Type     | Description                                              |
-| ----------------- | -------- | -------------------------------------------------------- |
-| `route`           | `string` | Endpoint that receives each chunk.                       |
-| `threshold`       | `number` | File size in bytes at which chunking begins.             |
-| `chunkSize`       | `number` | Size of each chunk in bytes. Defaults to `threshold`.    |
-| `maxChunkRetries` | `number` | Additional attempts for a failed chunk. Defaults to `2`. |
+| Property          | Type     | Description                                                                              |
+| ----------------- | -------- | ---------------------------------------------------------------------------------------- |
+| `route`           | `string` | Endpoint that receives each chunk.                                                       |
+| `threshold`       | `number` | File size in bytes at which chunking begins.                                             |
+| `chunkSize`       | `number` | Size of each chunk in bytes. Defaults to `threshold`, so set it when `threshold` is `0`. |
+| `maxChunkRetries` | `number` | Additional attempts for a failed chunk. Defaults to `2`.                                 |
 
 ## Returned values
 
