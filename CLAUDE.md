@@ -44,16 +44,17 @@ Before any commit, run the same sequence CI and the pre-push hook enforce: `lint
 
 ### The hook (`package/use-courier/`)
 
-`use-courier.ts` holds everything that touches React state (`files`, `commitFiles`, `performUpload`, `addFile`, `retryUpload`, `removeFile`). The stateless pieces are separate modules it imports, none of which use React: `transport.ts` (the XHR wrapper), `upload-file.ts` (whole-file vs chunked dispatch), `chunked-upload.ts` (chunking, chunk retries, resume state), `overall.ts` (the `overall` aggregate), `callbacks.ts` (`notify`, which runs a callback and reports anything it throws), and `ids.ts`. Keep that split: new logic that doesn't need hook state goes in its own module. Only `index.ts` is public; nothing else is re-exported.
+The upload logic lives in a framework-agnostic core, `createCourier()` (`create-courier.ts`), which imports no framework: it owns the file list and everything that changes it (`commitFiles`, `performUpload`, `addFile`, `retryUpload`, `removeFile`, `abortAll`) and exposes `getFiles`/`subscribe` like an external store. `use-courier.ts` is a thin React adapter over it: `useSyncExternalStore` for re-renders, `useLatest` to supply the latest props, and `abortAll` on unmount. Another framework's adapter (Vue, #35) should wrap the same core rather than copy logic. The stateless pieces the core uses are separate modules, none of which use React: `transport.ts` (the XHR wrapper), `request-options.ts` (headers and multipart body), `upload-file.ts` (whole-file vs chunked dispatch), `chunked-upload.ts` (chunking, chunk retries, resume state), `overall.ts` (the `overall` aggregate), `callbacks.ts` (`notify`, which runs a callback and reports anything it throws), and `ids.ts`. Keep that split: new upload logic goes in the core or a stateless module, never in an adapter. Only `index.ts` is public; the core is internal for now (see the decisions on #34).
 
 Uses `XMLHttpRequest`, not `fetch` — deliberately, because `fetch` cannot report upload progress. That constraint is why the transport is built the way it is.
 
-Refs hold transient state that's intentionally kept out of the public `files` array:
+State inside `createCourier`, intentionally kept out of the public `files` array:
 
-- `inFlightRef: Map<fileId, XMLHttpRequest>` — the current in-flight request per file, so `removeFile`/unmount can `.abort()` it. Only one entry per file at a time, even mid-chunking.
-- `resumeStateRef: Map<fileId, { uploadId, nextChunkIndex }>` — set when a chunk exhausts `fileChunking.maxChunkRetries`; lets `retryUpload` resume a failed chunked upload at the chunk that actually failed (reusing the same `uploadId`) instead of restarting the whole file from chunk 0. Cleared on full success or `removeFile`.
-- `filesRef` — an always-current mirror of `files`, written only through `commitFiles`. Lookups (`retryUpload`, `removeFile`, the `item` passed to callbacks) read it, never the `files` from a render's closure, which may be stale.
-- `optionsRef` (via `useLatest`) — the latest props. Every callback, `url`, and `fileChunking` is read through it, because an upload outlives the render it started in.
+- `files` — replaced, never mutated, on every change, and only through `commitFiles`, which then notifies subscribers. Every lookup (`retryUpload`, `removeFile`, the `item` passed to callbacks) reads it directly, so a file is visible the moment `addFile` returns, without waiting for a re-render.
+- `inFlight: Map<fileId, XMLHttpRequest>` — the current in-flight request per file, so `removeFile`/`abortAll` can `.abort()` it. Only one entry per file at a time, even mid-chunking.
+- `resumeState: Map<fileId, { uploadId, nextChunkIndex }>` — set when a chunk exhausts `fileChunking.maxChunkRetries`; lets `retryUpload` resume a failed chunked upload at the chunk that actually failed (reusing the same `uploadId`) instead of restarting the whole file from chunk 0. Cleared on full success or `removeFile`.
+- `generation` — bumped by `abortAll`, so an upload still waiting on async headers (no request yet to abort) knows it was cancelled. A counter rather than a "disposed" flag because React Strict Mode unmounts and remounts once in development, and the courier must keep working after that.
+- Options are never stored: the core calls the adapter's `getOptions()` each time it needs one, so every callback, `url`, and `fileChunking` is the latest value even though an upload outlives the render it started in.
 
 Callbacks split into two kinds: `beforeUpload`/`onUploadRetry` are gates — throwing from them rejects the attempt, so they're called directly. The rest are notifications and always go through `notify`, so a throw is reported and can never change a file's status or the `UploadResult`.
 
