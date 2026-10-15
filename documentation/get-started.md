@@ -96,7 +96,7 @@ function handleFileChange(event: Event) {
 
 :::
 
-The rest of the docs show React examples. In Vue, the options and callbacks are identical; see [Vue](/vue) for the few differences, like `files` being a ref.
+The options and callbacks are identical in React and Vue. Throughout the docs, examples that look different in each framework have React and Vue tabs; see [Vue](/vue) for the few differences, like `files` being a ref.
 
 ### Try it
 

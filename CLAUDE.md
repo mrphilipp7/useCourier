@@ -81,6 +81,8 @@ happy-dom's real `XMLHttpRequest` only implements _download_ progress, not _uplo
 
 ### Documentation lives in three places — a behavior change means updating up to three
 
+**The docs must serve Vue users as well as React users.** Any code example that would look different in Vue — a component, React APIs, or just an `import` from `"use-courier"` — goes in a `::: code-group` with `[React]` and `[Vue]` tabs. Options-only snippets with no import or markup are identical in both and stay single blocks. Next.js and TanStack Start pages are React frameworks and stay React-only. Prose says `useCourier`, not "the hook". `llms-full.txt` carries the same tabs.
+
 Live demos live in `documentation/.vitepress/theme/`: React demos (`UploadDemo`, `LifecycleDemo`) are mounted into Vue pages through `ReactDemoMount.vue`; the Vue demo (`VueUploadDemo.vue`) is native, since VitePress is a Vue app. All of them upload to the fake server in `demo-xhr.ts` (framework-free). `llms-full.txt` drops the live-demo ("Try it") sections and writes docs-internal links as plain text.
 
 1. `documentation/*.md` — VitePress source, the human-facing docs site.

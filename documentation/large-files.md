@@ -6,7 +6,9 @@ Chunking is the advanced upload path for files that should not be sent in one re
 
 Chunking is enabled with the `fileChunking` option. A file is chunked only when its size is greater than `threshold`.
 
-```tsx
+::: code-group
+
+```tsx [React]
 import { useCourier } from "use-courier";
 
 const { addFile } = useCourier({
@@ -19,6 +21,22 @@ const { addFile } = useCourier({
   },
 });
 ```
+
+```ts [Vue]
+import { useCourier } from "use-courier/vue";
+
+const { addFile } = useCourier({
+  url: "/api/uploads",
+  fileChunking: {
+    route: "/api/uploads/chunks",
+    threshold: 10 * 1024 * 1024,
+    chunkSize: 5 * 1024 * 1024,
+    maxChunkRetries: 2,
+  },
+});
+```
+
+:::
 
 Files at or below the threshold use the regular `url` endpoint. Larger files use `fileChunking.route` instead.
 
@@ -35,7 +53,7 @@ All sizes are measured in bytes. For example, `10 * 1024 * 1024` represents 10 M
 
 ## How a chunked upload works
 
-For a file with a size of 12 MiB and a `chunkSize` of 5 MiB, the hook sends three requests:
+For a file with a size of 12 MiB and a `chunkSize` of 5 MiB, `useCourier` sends three requests:
 
 1. Chunk `0`: bytes `0` through `5 MiB`
 2. Chunk `1`: bytes `5 MiB` through `10 MiB`
@@ -56,7 +74,7 @@ The final chunk response becomes the `data` value returned by `addFile` or `retr
 
 Progress is reported as the total number of bytes sent across all chunks, not just the current chunk. This means the `uploadProgress` value continues smoothly from one chunk to the next.
 
-If a chunk fails, the hook retries that chunk up to `maxChunkRetries` additional times before marking the upload as failed. Cancellation is not retried. Calling `removeFile` aborts the active request and removes the file from the tracked list.
+If a chunk fails, `useCourier` retries that chunk up to `maxChunkRetries` additional times before marking the upload as failed. Cancellation is not retried. Calling `removeFile` aborts the active request and removes the file from the tracked list.
 
 Calling `retryUpload` after a chunked upload fails resumes from the chunk that failed — the same `uploadId`, picking up at that `chunkIndex` — rather than starting over. See [Upload Lifecycle](/upload-lifecycle) for the full explanation, including the one case (a page reload mid-upload) that still starts over from scratch.
 

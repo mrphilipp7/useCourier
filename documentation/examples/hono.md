@@ -6,7 +6,9 @@ This example implements the standard upload endpoint from the [Backend Integrati
 
 Point `useCourier` at the Hono route:
 
-```tsx
+::: code-group
+
+```tsx [React]
 import { useCourier } from "use-courier";
 
 const { addFile } = useCourier({
@@ -14,7 +16,17 @@ const { addFile } = useCourier({
 });
 ```
 
-The hook sends files as `multipart/form-data` with the field name `file`.
+```ts [Vue]
+import { useCourier } from "use-courier/vue";
+
+const { addFile } = useCourier({
+  url: "/upload",
+});
+```
+
+:::
+
+`useCourier` sends files as `multipart/form-data` with the field name `file`.
 
 ## Hono route
 
