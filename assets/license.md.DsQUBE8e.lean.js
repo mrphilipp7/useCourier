@@ -1,0 +1,1 @@
+import{H as e,U as t,j as n,nt as r}from"./chunks/framework.e7t9RhJk.js";var i=JSON.parse(`{"title":"License","description":"","frontmatter":{},"headers":[],"relativePath":"license.md","filePath":"license.md"}`),a={name:`license.md`};function o(n,i,a,o,s,c){return r(),e(`div`,null,[...i[0]||=[t("",7)]])}var s=n(a,[[`render`,o]]);export{i as __pageData,s as default};

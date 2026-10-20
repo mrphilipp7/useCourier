@@ -1,0 +1,1 @@
+import{H as e,U as t,j as n,nt as r}from"./chunks/framework.e7t9RhJk.js";var i=JSON.parse(`{"title":"Recipes","description":"","frontmatter":{},"headers":[],"relativePath":"recipes.md","filePath":"recipes.md"}`),a={name:`recipes.md`};function o(n,i,a,o,s,c){return r(),e(`div`,null,[...i[0]||=[t("",28)]])}var s=n(a,[[`render`,o]]);export{i as __pageData,s as default};
