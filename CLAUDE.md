@@ -29,9 +29,9 @@ bun run docs:deploy         # build output -> gh-pages branch (publishes to http
 
 Before any commit, run the same sequence CI and the pre-push hook enforce: `lint` → `format:check` → `typecheck` → `test` → `build`.
 
-**Docs do not deploy automatically.** After merging any change under `documentation/`, `bun run docs:build && bun run docs:deploy` must be run manually to publish it.
+**Docs do not deploy automatically.** After merging any change under `documentation/`, `bun run docs:build && bun run docs:deploy` must be run manually to publish it. For a release, deploy only after the npm publish (see Releasing).
 
-**`npm publish` is manual and interactive** — it requires OTP/2FA approval in a browser and cannot be run unattended from this environment. Bumping the version in `package.json` and actually publishing are two separate steps; ask before doing either.
+**`npm publish` is manual and interactive** — it requires OTP/2FA approval in a browser and cannot be run unattended from this environment. Bumping the version in `package.json` and actually publishing are two separate steps; ask before doing either. The full sequence is under Releasing.
 
 ## Architecture
 
@@ -93,9 +93,27 @@ Live demos live in `documentation/.vitepress/theme/`, and every demo exists in b
 
 The GitHub repo is named `useCourier` (capital C); the npm package is `use-courier` (lowercase-hyphenated). This mismatch is intentional. `documentation/.vitepress/config.ts`'s `base` must match the **GitHub repo name** exactly (`/useCourier/`), not the npm package name, because GitHub Pages serves a project site at a path matching the repo name. Getting this wrong 404s every asset on the deployed site.
 
-### Versioning policy while pre-1.0
+### Versioning policy
 
-Follow semver's minor-slot convention for `0.x` releases: a fix that doesn't change documented behavior is a patch (`0.1.x`); anything that adds, removes, or changes documented behavior — even non-breaking — is a minor bump (`0.x.0`), since there's no "true" major slot to distinguish breaking from non-breaking until `1.0.0`. Reserve `1.0.0` for when the API is considered stable, not for any particular feature.
+Standard semver since `1.0.0`, judged against **documented** behavior (the docs site, not internals):
+
+- **Patch** (`1.0.x`): a fix that doesn't change documented behavior.
+- **Minor** (`1.x.0`): adds documented behavior without breaking existing code — a new option, callback, export, or entry point.
+- **Major** (`x.0.0`): removes or changes documented behavior so existing code could break, including dropping a deprecated alias like `UseCourierProps` or a supported React/Vue peer version.
+
+Before `1.0.0` the minor slot covered every documented change, breaking or not; older bump commits follow that rule.
+
+### Releasing
+
+The sequence every release has followed so far:
+
+1. **Work and bump on one feature branch.** The fix/feature commits first, then a separate commit titled `Bump version to X.Y.Z` that changes only `package.json`, with a body saying why it's a patch/minor/major under the policy above (e.g. "Fixes #27 and #28 without changing documented behavior, so this is a patch."). Bumping and publishing are separate steps; ask before bumping.
+2. **Docs in the same branch**, per "Documentation lives in three places" above. A doc that describes a newly added or changed behavior notes the version it arrived in ("needs version 0.7.0 or later", "Before 0.5.0, …").
+3. **PR → CI → merge.** The user reviews and merges; don't merge without that.
+4. **Publish to npm** from an up-to-date `main` (`git checkout main && git pull`). `npm publish` needs the user's OTP, so the user runs it. `prepublishOnly` rebuilds `dist/`. Beforehand, `npm pack --dry-run` shows exactly what will ship.
+5. **Deploy the docs** once npm shows the new version, not before, so the site never documents unpublished behavior: `bun run docs:build && bun run docs:deploy`. The deploy is live at https://mrphilipp7.github.io/useCourier/ within about a minute.
+6. **Tag and create a GitHub Release** (started at `v1.0.0`): an annotated `vX.Y.Z` tag on the merge commit, pushed, then `gh release create vX.Y.Z --verify-tag --latest` with notes listing what changed (for users, linking the PR and the docs). No `dist/` attachments: npm is where the code ships.
+7. **Delete the merged branch** locally and on GitHub.
 
 ### Workflow conventions
 
