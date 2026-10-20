@@ -17,12 +17,37 @@ import type { FileChunking, UploadItem } from "./types.js";
  */
 export type ChunkResumeState = Map<
   string,
-  { uploadId: string; nextChunkIndex: number }
+  { uploadId: string; nextChunkIndex: number; chunkSize: number; route: string }
 >;
 
 /** The size each chunk is cut to: chunkSize, or threshold if unset. */
 export function getChunkSize(chunking: FileChunking) {
   return chunking.chunkSize ?? chunking.threshold;
+}
+
+/**
+ * Where a retry of this file can pick up, or undefined if it must start
+ * over. A resume point only holds for the chunkSize and route that made it:
+ * resuming under the same uploadId with chunks cut to a different size, or
+ * sent to a different route, would have the server reassemble mismatched
+ * byte ranges into a corrupt file.
+ */
+function getResumePoint(
+  item: UploadItem,
+  chunking: FileChunking | undefined,
+  resumeState: ChunkResumeState,
+) {
+  const resumeFrom = resumeState.get(item.id);
+  if (
+    !resumeFrom ||
+    !chunking ||
+    item.file.size <= chunking.threshold ||
+    resumeFrom.chunkSize !== getChunkSize(chunking) ||
+    resumeFrom.route !== chunking.route
+  ) {
+    return undefined;
+  }
+  return resumeFrom;
 }
 
 /**
@@ -35,12 +60,11 @@ export function getResumePercent(
   chunking: FileChunking | undefined,
   resumeState: ChunkResumeState,
 ) {
-  const resumeFrom = resumeState.get(item.id);
-  if (!resumeFrom || !chunking) return 0;
+  const resumeFrom = getResumePoint(item, chunking, resumeState);
+  if (!resumeFrom) return 0;
 
   return Math.round(
-    ((resumeFrom.nextChunkIndex * getChunkSize(chunking)) / item.file.size) *
-      100,
+    ((resumeFrom.nextChunkIndex * resumeFrom.chunkSize) / item.file.size) * 100,
   );
 }
 
@@ -94,7 +118,9 @@ export async function uploadInChunks<TResponse>({
   const totalChunks = Math.ceil(item.file.size / chunkSize);
   const maxChunkRetries = chunking.maxChunkRetries ?? 2;
 
-  const resumeFrom = resumeState.get(item.id);
+  const resumeFrom = getResumePoint(item, chunking, resumeState);
+  // A resume point made with different chunking settings is unusable.
+  if (!resumeFrom) resumeState.delete(item.id);
   const uploadId = resumeFrom?.uploadId ?? createId();
   const startChunkIndex = resumeFrom?.nextChunkIndex ?? 0;
 
@@ -153,7 +179,12 @@ export async function uploadInChunks<TResponse>({
           // #6: out of retries for this chunk — remember where we stopped
           // (same uploadId, this chunkIndex) so a later retryUpload call
           // resumes here instead of re-sending every chunk from scratch.
-          resumeState.set(item.id, { uploadId, nextChunkIndex: chunkIndex });
+          resumeState.set(item.id, {
+            uploadId,
+            nextChunkIndex: chunkIndex,
+            chunkSize,
+            route: chunking.route,
+          });
           throw error;
         }
         attempt++;

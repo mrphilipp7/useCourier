@@ -135,12 +135,20 @@ function openRequest<TResponse>(
       reject(new UploadCancelledError());
     });
 
-    xhr.open(method, endpoint);
-    // Headers and withCredentials can only be set after open().
-    for (const [name, value] of Object.entries(headers)) {
-      xhr.setRequestHeader(name, value);
+    // open() and setRequestHeader() throw on, e.g., an invalid URL or header
+    // value. The executor turns that into a rejection, but the request never
+    // started, so it mustn't stay tracked as in flight.
+    try {
+      xhr.open(method, endpoint);
+      // Headers and withCredentials can only be set after open().
+      for (const [name, value] of Object.entries(headers)) {
+        xhr.setRequestHeader(name, value);
+      }
+      xhr.withCredentials = withCredentials;
+      xhr.send(formData);
+    } catch (error) {
+      cleanup();
+      throw error;
     }
-    xhr.withCredentials = withCredentials;
-    xhr.send(formData);
   });
 }

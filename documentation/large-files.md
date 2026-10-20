@@ -76,7 +76,7 @@ Progress is reported as the total number of bytes sent across all chunks, not ju
 
 If a chunk fails, `useCourier` retries that chunk up to `maxChunkRetries` additional times before marking the upload as failed. Cancellation is not retried. Calling `removeFile` aborts the active request and removes the file from the tracked list.
 
-Calling `retryUpload` after a chunked upload fails resumes from the chunk that failed — the same `uploadId`, picking up at that `chunkIndex` — rather than starting over. See [Upload Lifecycle](/upload-lifecycle) for the full explanation, including the one case (a page reload mid-upload) that still starts over from scratch.
+Calling `retryUpload` after a chunked upload fails resumes from the chunk that failed — the same `uploadId`, picking up at that `chunkIndex` — rather than starting over. If `chunkSize` or `route` changed since the failure, it starts over under a new `uploadId` instead, since chunks of a different size would corrupt the file. See [Upload Lifecycle](/upload-lifecycle) for the full explanation, including the other case (a page reload mid-upload) that still starts over from scratch.
 
 ## Server responsibilities
 

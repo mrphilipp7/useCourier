@@ -1106,7 +1106,7 @@ or:
 
 Retries a file whose status is `error`. The file ID comes from `files`.
 
-For a chunked upload, this resumes from the chunk that failed rather than restarting from scratch — see Upload Lifecycle for exactly what that means, and the one case (a page reload) where it still starts over.
+For a chunked upload, this resumes from the chunk that failed rather than restarting from scratch — see Upload Lifecycle for exactly what that means, and the cases (a page reload, or changed `fileChunking` settings) where it still starts over.
 
 ### `removeFile(id)`
 
@@ -1124,7 +1124,7 @@ Aggregate progress and status across every currently tracked file, recomputed wh
 | --- | --- | --- |
 | `status` | `"idle" \| "uploading" \| "processing" \| "error" \| "done"` | Worst-status-wins across all tracked files. See below. |
 | `averageProgress` | `number` | Mean of each file's `uploadProgress`, every file weighted equally. |
-| `weightedProgress` | `number` | Bytes sent so far across all files, divided by total bytes, as a `0`-`100` percentage. |
+| `weightedProgress` | `number` | Bytes sent so far across all files, divided by total bytes, as a `0`-`100` percentage. Equals `averageProgress` when every tracked file is empty. |
 
 `status` follows the same precedence order most CI/build systems use for an aggregate result: `"error"` if any file has errored, else `"uploading"` if any file is actively sending bytes, else `"processing"` if any file is fully sent and awaiting a response, else `"done"` once every file has finished. `"idle"` only appears here, when there are no tracked files at all — a single file's own `status` never reports `"idle"`.
 
@@ -1358,11 +1358,13 @@ Before 0.5.0, `retryUpload` did not run `beforeUpload`, so a file it rejected co
 
 For a chunked upload, `retryUpload` picks up at the chunk that failed instead of starting the whole file over: it reuses the same `uploadId` and begins again at that `chunkIndex`, so chunks that already succeeded aren't re-sent. `uploadProgress` reflects the resumed starting point immediately, rather than resetting to `0` and jumping back up once the resumed chunk's first progress event arrives.
 
+A retry resumes only if `fileChunking.chunkSize` (or `threshold`, when there's no `chunkSize`) and `fileChunking.route` are the same as when the upload failed. If either has changed, or the retry isn't chunked at all, it starts over at chunk `0` under a new `uploadId`, because chunks cut to a different size under the old `uploadId` would reassemble into a corrupt file.
+
 This works without any changes to your server: the chunk-endpoint contract already keys chunks by `uploadId` + `chunkIndex` and reassembles once every index has arrived (see Backend Integration), so resuming under the same `uploadId` looks identical to the server as a slower single attempt — nothing is orphaned.
 
 For a non-chunked (whole-file) upload there's no partial progress to resume from, so `retryUpload` re-sends the entire file, same as it always has.
 
-This only covers retrying within the same page session. If the user reloads the page mid-upload instead of clicking retry, everything is lost: all upload state lives only in React state and an in-memory ref, so nothing survives a reload. A fresh `addFile` call after reloading is indistinguishable from uploading the file for the first time — new `id`, new `uploadId` if it's chunked — and the bytes already sent before the reload are abandoned server-side. There is currently no support for resuming an upload across a page reload, only across a manual retry in the same session.
+This only covers retrying within the same page session. If the user reloads the page mid-upload instead of clicking retry, everything is lost: all upload state lives only in memory, so nothing survives a reload. A fresh `addFile` call after reloading is indistinguishable from uploading the file for the first time — new `id`, new `uploadId` if it's chunked — and the bytes already sent before the reload are abandoned server-side. There is currently no support for resuming an upload across a page reload, only across a manual retry in the same session.
 
 ---
 
@@ -1446,7 +1448,7 @@ Progress is reported as the total number of bytes sent across all chunks, not ju
 
 If a chunk fails, `useCourier` retries that chunk up to `maxChunkRetries` additional times before marking the upload as failed. Cancellation is not retried. Calling `removeFile` aborts the active request and removes the file from the tracked list.
 
-Calling `retryUpload` after a chunked upload fails resumes from the chunk that failed — the same `uploadId`, picking up at that `chunkIndex` — rather than starting over. See Upload Lifecycle for the full explanation, including the one case (a page reload mid-upload) that still starts over from scratch.
+Calling `retryUpload` after a chunked upload fails resumes from the chunk that failed — the same `uploadId`, picking up at that `chunkIndex` — rather than starting over. If `chunkSize` or `route` changed since the failure, it starts over under a new `uploadId` instead, since chunks of a different size would corrupt the file. See Upload Lifecycle for the full explanation, including the other case (a page reload mid-upload) that still starts over from scratch.
 
 ## Server responsibilities
 
