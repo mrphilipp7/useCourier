@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import React from "react";
 import { act, renderHook } from "@testing-library/react";
 import { createCourier } from "../package/use-courier/create-courier.js";
+import { getOverallUploadState } from "../package/use-courier/overall.js";
 import {
   UploadCancelledError,
   useCourier,
@@ -124,6 +125,116 @@ describe("createCourier", () => {
     MockXMLHttpRequest.last.respondWith(200, {});
 
     expect(await upload).toMatchObject({ success: true });
+  });
+});
+
+describe("chunk resume only reuses matching chunking settings", () => {
+  /** Fails a 12-byte file at chunk 1 of 3 (5-byte chunks, no chunk retries). */
+  async function failAtChunk1(
+    courier: ReturnType<typeof createCourier>,
+  ): Promise<string> {
+    const upload = courier.addFile(makeFile(12));
+    MockXMLHttpRequest.last.respondWith(200, {});
+    await Promise.resolve();
+    MockXMLHttpRequest.last.respondWithNetworkError();
+    await upload;
+    return courier.getFiles()[0]!.id;
+  }
+
+  test("a retry after chunkSize changes starts over under a new uploadId", async () => {
+    let chunkSize = 5;
+    const courier = createCourier(() => ({
+      url: "/api/uploads",
+      fileChunking: {
+        route: "/api/chunks",
+        threshold: 10,
+        chunkSize,
+        maxChunkRetries: 0,
+      },
+    }));
+    const id = await failAtChunk1(courier);
+    const uploadId = MockXMLHttpRequest.last.body?.get("uploadId");
+
+    chunkSize = 4;
+    void courier.retryUpload(id);
+
+    // Resuming at chunk 1 with 4-byte chunks would send bytes 4-8 as the
+    // chunk the server expects to hold bytes 5-10, corrupting the file.
+    const first = MockXMLHttpRequest.last;
+    expect(first.body?.get("chunkIndex")).toBe("0");
+    expect(first.body?.get("totalChunks")).toBe("3");
+    expect(first.body?.get("uploadId")).not.toBe(uploadId);
+    expect(courier.getFiles()[0]?.uploadProgress).toBe(0);
+  });
+
+  test("a retry after route changes starts over under a new uploadId", async () => {
+    let route = "/api/chunks";
+    const courier = createCourier(() => ({
+      url: "/api/uploads",
+      fileChunking: { route, threshold: 10, chunkSize: 5, maxChunkRetries: 0 },
+    }));
+    const id = await failAtChunk1(courier);
+    const uploadId = MockXMLHttpRequest.last.body?.get("uploadId");
+
+    route = "/api/v2/chunks";
+    void courier.retryUpload(id);
+
+    expect(MockXMLHttpRequest.last.url).toBe("/api/v2/chunks");
+    expect(MockXMLHttpRequest.last.body?.get("chunkIndex")).toBe("0");
+    expect(MockXMLHttpRequest.last.body?.get("uploadId")).not.toBe(uploadId);
+  });
+
+  test("a whole-file retry drops the resume point", async () => {
+    let chunked = true;
+    const courier = createCourier(() => ({
+      url: "/api/uploads",
+      fileChunking: chunked
+        ? {
+            route: "/api/chunks",
+            threshold: 10,
+            chunkSize: 5,
+            maxChunkRetries: 0,
+          }
+        : undefined,
+    }));
+    const id = await failAtChunk1(courier);
+
+    chunked = false;
+    const wholeFile = courier.retryUpload(id);
+    MockXMLHttpRequest.last.respondWithNetworkError();
+    await wholeFile;
+
+    // Chunking back on: the old resume point must not come back to life.
+    chunked = true;
+    void courier.retryUpload(id);
+    expect(MockXMLHttpRequest.last.body?.get("chunkIndex")).toBe("0");
+  });
+});
+
+describe("overall and transport edge cases", () => {
+  test("weightedProgress isn't stuck at 0 when every file is empty", () => {
+    const file = makeFile(0);
+    const overall = getOverallUploadState([
+      { id: "a", file, status: "done", uploadProgress: 100 },
+    ]);
+    expect(overall.weightedProgress).toBe(100);
+  });
+
+  test("a request that throws while opening isn't left tracked as in flight", async () => {
+    const open = MockXMLHttpRequest.prototype.open;
+    MockXMLHttpRequest.prototype.open = () => {
+      throw new SyntaxError("Invalid URL");
+    };
+    try {
+      const courier = createCourier(() => ({ url: "http://[bad" }));
+      const result = await courier.addFile(makeFile());
+      expect(result.success).toBe(false);
+
+      courier.removeFile(courier.getFiles()[0]!.id);
+      expect(MockXMLHttpRequest.last.aborted).toBe(false);
+    } finally {
+      MockXMLHttpRequest.prototype.open = open;
+    }
   });
 });
 

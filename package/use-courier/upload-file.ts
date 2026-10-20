@@ -45,6 +45,9 @@ export function uploadFile<TResponse>({
     });
   }
 
+  // A chunked attempt's resume point doesn't apply to a whole-file upload.
+  resumeState.delete(item.id);
+
   let formData: FormData;
   try {
     formData = buildFormData(request, item, item.file);

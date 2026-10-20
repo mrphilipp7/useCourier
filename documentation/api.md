@@ -228,11 +228,11 @@ Removes a tracked file by ID. If its upload is still in progress, the request is
 
 Aggregate progress and status across every currently tracked file, recomputed whenever `files` changes:
 
-| Property           | Type                                                         | Description                                                                            |
-| ------------------ | ------------------------------------------------------------ | -------------------------------------------------------------------------------------- |
-| `status`           | `"idle" \| "uploading" \| "processing" \| "error" \| "done"` | Worst-status-wins across all tracked files. See below.                                 |
-| `averageProgress`  | `number`                                                     | Mean of each file's `uploadProgress`, every file weighted equally.                     |
-| `weightedProgress` | `number`                                                     | Bytes sent so far across all files, divided by total bytes, as a `0`-`100` percentage. |
+| Property           | Type                                                         | Description                                                                                                                                       |
+| ------------------ | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `status`           | `"idle" \| "uploading" \| "processing" \| "error" \| "done"` | Worst-status-wins across all tracked files. See below.                                                                                            |
+| `averageProgress`  | `number`                                                     | Mean of each file's `uploadProgress`, every file weighted equally.                                                                                |
+| `weightedProgress` | `number`                                                     | Bytes sent so far across all files, divided by total bytes, as a `0`-`100` percentage. Equals `averageProgress` when every tracked file is empty. |
 
 `status` follows the same precedence order most CI/build systems use for an aggregate result: `"error"` if any file has errored, else `"uploading"` if any file is actively sending bytes, else `"processing"` if any file is fully sent and awaiting a response, else `"done"` once every file has finished. `"idle"` only appears here, when there are no tracked files at all — a single file's own `status` never reports `"idle"`.
 

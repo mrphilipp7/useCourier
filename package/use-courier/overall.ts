@@ -34,8 +34,11 @@ export function getOverallUploadState(files: UploadItem[]): OverallUploadState {
     (sum, file) => sum + file.file.size * (file.uploadProgress / 100),
     0,
   );
+  // Only empty files tracked: no bytes to weigh, so fall back to the average.
   const weightedProgress =
-    totalBytes === 0 ? 0 : Math.round((bytesSent / totalBytes) * 100);
+    totalBytes === 0
+      ? averageProgress
+      : Math.round((bytesSent / totalBytes) * 100);
 
   return {
     status: getOverallStatus(files),
