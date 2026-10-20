@@ -214,7 +214,7 @@ or:
 
 Retries a file whose status is `error`. The file ID comes from `files`.
 
-For a chunked upload, this resumes from the chunk that failed rather than restarting from scratch — see [Upload Lifecycle](/upload-lifecycle) for exactly what that means, and the one case (a page reload) where it still starts over.
+For a chunked upload, this resumes from the chunk that failed rather than restarting from scratch — see [Upload Lifecycle](/upload-lifecycle) for exactly what that means, and the cases (a page reload, or changed `fileChunking` settings) where it still starts over.
 
 ### `removeFile(id)`
 
